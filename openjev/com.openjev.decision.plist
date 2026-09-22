@@ -5,9 +5,8 @@
   <key>Label</key><string>com.openjev.decision</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>node</string>
-    <string>PATH_TO_REPO/openjev/service.mjs</string>
+    <string>NODE_PATH/bin/node</string>
+    <string>DEPLOY_DIR/openjev/service.mjs</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -21,7 +20,7 @@
     <key>SuccessfulExit</key><false/>
     <key>Crashed</key><true/>
   </dict>
-  <key>StandardOutPath</key><string>PATH_TO_HOME/.local/state/openjev/decision.log</string>
-  <key>StandardErrorPath</key><string>PATH_TO_HOME/.local/state/openjev/decision.log</string>
+  <key>StandardOutPath</key><string>HOME_PATH/.local/state/openjev/decision.log</string>
+  <key>StandardErrorPath</key><string>HOME_PATH/.local/state/openjev/decision.log</string>
 </dict>
 </plist>

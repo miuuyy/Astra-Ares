@@ -13,8 +13,20 @@ Running the decision model on the LAN removes that latency entirely:
 
 | path | measured |
 | --- | --- |
-| dgx-01 → MacBook (tailscale) → Qwen3.5-0.8B → reply | **162 ms** round trip |
-| decision alone (localhost, warm) | **~130–460 ms** for effort + lease |
+| dgx-01 → MacBook (tailscale) → decision → reply | **~336 ms** round trip (Qwen3.5-4B) |
+| decision alone (localhost, warm, effort + lease) | **~350–1100 ms** depending on model |
+
+Model choice matters more than speed here — it is the decision quality:
+
+| model (GGUF) | trivial task | hard task | decision latency |
+| --- | --- | --- | --- |
+| `ggml-org/Qwen3.5-0.8B-Q8_0` | low ✓ | low ✗ (no discrimination) | ~180–460 ms |
+| `unsloth/Qwen3.5-4B-Q5_K_M` **(default)** | low ✓ | medium ✓ | ~600–1100 ms |
+
+Both live in `~/ai/models/`. Swap via the backend plist's `--model` argument
+(or any OpenAI-compatible endpoint at all — vLLM on the Sparks, LM Studio, etc.);
+the decision service only needs `/chat/completions` with `response_format` and
+`logprobs` support.
 
 ## How decisions work (the openjev-sglang pattern)
 
@@ -25,6 +37,14 @@ Running the decision model on the LAN removes that latency entirely:
 3. The per-option distribution is read from that token's `top_logprobs` —
    one short generation per question, no free-form output to parse, and
    calibrated probabilities fall out of the same pass.
+
+The applied `choice` is the grammar-constrained answer, so it is always one of
+the offered options. The reported `probabilities` are the backend's raw
+next-token distribution over the option letters (pre-grammar-mask, renormalized
+over the letters it returned) — the same raw-logits character as the
+spark-jev-stack option-logit readout — so its argmax can occasionally differ
+from the constrained choice; treat it as a confidence signal, not a second
+decision.
 
 Both questions (effort + lease) are answered in parallel and returned in the
 TypeSafe answer shape:
@@ -53,8 +73,8 @@ TypeSafe answer shape:
 ## Run it on the Mac
 
 ```bash
-# 1. backend (llama.cpp, Metal) — small model, full GPU offload
-llama-server --model ~/ai/models/Qwen3.5-0.8B-Q8_0.gguf \
+# 1. backend (llama.cpp, Metal) — 4B default (better decisions), 0.8B for lowest latency
+llama-server --model ~/ai/models/Qwen3.5-4B-Q5_K_M.gguf \
   --port 8911 --host 127.0.0.1 -c 16384 -np 2 -ngl 99 --jinja &
 
 # 2. decision service — binds 0.0.0.0 so the tailnet can reach it
@@ -63,10 +83,11 @@ node openjev/service.mjs &        # listens on :8890
 curl -s localhost:8890/health | python3 -m json.tool
 ```
 
-Model used: `ggml-org/Qwen3.5-0.8B-GGUF` (Q8_0, sha256-verified) — the same
-Qwen3.5-0.8B the spark-jev-stack experiments validated for this role, now as the
-official llama.cpp GGUF. It is a decision reader, not a chat model; quality bar
-is "pick the right option label", which is what the logit-readout pattern needs.
+Models: `unsloth/Qwen3.5-4B-GGUF` (Q5_K_M) and `ggml-org/Qwen3.5-0.8B-GGUF`
+(Q8_0), both sha256-verified — the same Qwen3.5 family the spark-jev-stack
+experiments validated for this role. They are decision readers, not chat
+models; the quality bar is "pick the right option label", which is what the
+logit-readout pattern needs.
 
 ### Environment
 
@@ -90,6 +111,24 @@ cp openjev/com.openjev.*.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.openjev.backend.plist
 launchctl load ~/Library/LaunchAgents/com.openjev.decision.plist
 ```
+
+Substitute the placeholders first (`NODE_PATH`, `HOME_PATH`, `DEPLOY_DIR`,
+`PATH_TO_HOME`).
+
+**macOS TCC warning:** launchd agents are *not* granted Documents-folder access,
+and Node blocks indefinitely on a first read of a `~/Documents` file under TCC.
+Do not point the service at a path under `~/Documents` (or `~/Desktop`/`~/Downloads`).
+Deploy a runtime copy somewhere unprotected — the service imports
+`../src/state-text.mjs`, so mirror the two-file layout:
+
+```bash
+mkdir -p ~/ai/openjev/src ~/ai/src
+cp openjev/service.mjs ~/ai/openjev/service.mjs
+cp src/state-text.mjs ~/ai/src/state-text.mjs
+# then point the decision plist's ProgramArguments at /Users/<you>/ai/openjev/service.mjs
+```
+
+Restart after editing: `launchctl unload <plist> && launchctl load <plist>`.
 
 ## Point Ares at it
 
