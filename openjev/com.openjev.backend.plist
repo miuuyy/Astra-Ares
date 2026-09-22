@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.openjev.backend</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/llama-server</string>
+    <string>--model</string><string>PATH_TO_HOME/ai/models/Qwen3.5-0.8B-Q8_0.gguf</string>
+    <string>--port</string><string>8911</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>-c</string><string>16384</string>
+    <string>-np</string><string>2</string>
+    <string>-ngl</string><string>99</string>
+    <string>--jinja</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+  <key>StandardOutPath</key><string>PATH_TO_HOME/.local/state/openjev/backend.log</string>
+  <key>StandardErrorPath</key><string>PATH_TO_HOME/.local/state/openjev/backend.log</string>
+</dict>
+</plist>

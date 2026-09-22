@@ -60,6 +60,19 @@ Paste the key into the hidden prompt. **OpenRouter is the default for new instal
 
 Astra uses your existing **Codex login with access to Astra**, separately from the Jev key. If needed, sign in with `astra-ares login`. [Other Jev providers and environment variables →](docs/configuration.md)
 
+**Running your own decision model?** The `openjev` provider points Ares at a
+local, TypeSafe-shaped decision service (OpenAI-compatible backend, per-option
+logit readout) instead of a hosted Jev gateway — same contract as the
+`spark-jev-stack` decision service, running on your own hardware or tailnet:
+
+```sh
+ares configure --provider openjev --base-url http://127.0.0.1:8890   # key: press enter
+```
+
+See [docs/openjev.md](docs/openjev.md) and the runnable service in
+[openjev/](openjev/README.md) (includes a measured ~150 ms tailnet round trip
+using Qwen3.5-0.8B on llama.cpp).
+
 ### 3. Start Codex
 
 ```sh
@@ -150,6 +163,6 @@ Local fixture tests require no API keys.
 
 ---
 
-[Installation & removal](docs/installation.md) · [Configuration](docs/configuration.md) · [Validation](docs/validation.md) · [MIT license](LICENSE)
+[Installation & removal](docs/installation.md) · [Configuration](docs/configuration.md) · [openjev local provider](docs/openjev.md) · [Validation](docs/validation.md) · [MIT license](LICENSE)
 
 Independent software, unaffiliated with OpenAI, TypeSafe, OpenRouter, or Vercel. The bridge is MIT-licensed; the patched Codex source is Apache-2.0. See [third-party notices](THIRD_PARTY_NOTICES.md).

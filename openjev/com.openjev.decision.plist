@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.openjev.decision</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>PATH_TO_REPO/openjev/service.mjs</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OPENJEV_PORT</key><string>8890</string>
+    <key>OPENJEV_HOST</key><string>0.0.0.0</string>
+    <key>OPENJEV_BACKEND_URL</key><string>http://127.0.0.1:8911</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+  <key>StandardOutPath</key><string>PATH_TO_HOME/.local/state/openjev/decision.log</string>
+  <key>StandardErrorPath</key><string>PATH_TO_HOME/.local/state/openjev/decision.log</string>
+</dict>
+</plist>

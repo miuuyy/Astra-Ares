@@ -14,6 +14,7 @@
   "files": [
     "bin",
     "src",
+    "openjev",
     "scripts/build-codex.mjs",
     "patches",
     "README.md",
@@ -21,6 +22,7 @@
     "assets",
     "THIRD_PARTY_NOTICES.md",
     "config.example.json",
+    "config.openjev.example.json",
     "docs"
   ],
   "scripts": {
