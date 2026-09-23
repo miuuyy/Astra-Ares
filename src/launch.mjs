@@ -21,7 +21,10 @@ export function verifyBinary(binary) {
   const bytes = readFileSync(binary);
   for (const marker of [
     "CODEX_STEP_CONTROLLER_CONTEXT_V3",
-    "Astra-Jev requires its bridge",
+    "Jev requires its bridge",
+    "Astra Ares",
+    "Luna Ares",
+    "Sol Ares",
   ]) {
     if (!bytes.includes(Buffer.from(marker)))
       throw new Error(

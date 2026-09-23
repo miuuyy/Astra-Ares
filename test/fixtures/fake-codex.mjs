@@ -12,6 +12,7 @@ export function makeFakeCodex(dir) {
     `#!/bin/sh
 # CODEX_STEP_CONTROLLER_CONTEXT_V3
 # Astra-Jev requires its bridge
+# Astra Ares / Luna Ares / Sol Ares
 if [ "$1" = "--version" ]; then echo "codex-cli 0.155.0-alpha.9.2"; exit 0; fi
 env > "$FAKE_CODEX_ENV_OUT"
 `,

@@ -13927,10 +13927,10 @@ index 9252c89..3b4cbc9 100644
              contributor
 diff --git a/codex-rs/core/src/session/step_controller.rs b/codex-rs/core/src/session/step_controller.rs
 new file mode 100644
-index 0000000..91a781a
+index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8e786aba6
 --- /dev/null
 +++ b/codex-rs/core/src/session/step_controller.rs
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,339 @@
 +//! Opt-in evaluator bridge for every native CLI frontend. The bridge selects an
 +//! effort; core applies it through the same live settings path as app-server.
 +
@@ -13943,6 +13943,7 @@ index 0000000..91a781a
 +use codex_protocol::error::CodexErr;
 +use codex_protocol::error::Result;
 +use codex_protocol::openai_models::ReasoningEffort;
++use codex_protocol::openai_models::jev_base_model;
 +use codex_protocol::protocol::EventMsg;
 +use codex_protocol::protocol::ReasoningEffortUpdatedEvent;
 +use codex_protocol::protocol::TurnSettingsUpdate;
@@ -14106,35 +14107,34 @@ index 0000000..91a781a
 +        turn: &TurnContext,
 +    ) -> Result<Option<AppliedSettings>> {
 +        let current = turn.current_settings.load_full();
-+        if current.selected_collaboration_mode().model()
-+            != codex_protocol::openai_models::ASTRA_JEV_MODEL
-+        {
++        let selection = current.selected_collaboration_mode().model();
++        let Some(base_model) = jev_base_model(selection) else {
 +            self.connection = None;
 +            self.sequence = 0;
 +            self.last_effort = None;
 +            return Ok(None);
-+        }
++        };
 +        if !session.enabled(Feature::StepModelSwitching)
 +            || !session.enabled(Feature::ReasoningEffortOverride)
 +        {
 +            return Err(failure(
-+                "Astra-Jev requires native step_model_switching and reasoning_effort_override",
++                "Jev requires native step_model_switching and reasoning_effort_override",
 +            ));
 +        }
 +        let model = &current.model_info;
-+        if model.slug != codex_protocol::openai_models::ASTRA_JEV_BASE_MODEL
++        if model.slug != base_model
 +            || model.used_fallback_model_metadata
 +            || !model.use_responses_lite
 +            || model.supported_reasoning_levels.is_empty()
 +        {
 +            return Err(failure(format!(
-+                "Astra-Jev requires available native Astra metadata with adaptive effort support; received {}.",
++                "{selection} requires available native {base_model} metadata with adaptive effort support; received {}.",
 +                model.slug
 +            )));
 +        }
 +        if self.connection.is_none() {
 +            let socket = std::env::var_os("CODEX_STEP_CONTROLLER_SOCKET")
-+                .ok_or_else(|| failure("Astra-Jev requires its bridge. Launch codex-jev."))?;
++                .ok_or_else(|| failure("Jev requires its bridge. Launch astra-ares."))?;
 +            self.connection = Some(
 +                tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(socket))
 +                    .await
@@ -14194,8 +14194,7 @@ index 0000000..91a781a
 +        }
 +        let latest = turn.current_settings.load_full();
 +        if latest.model_info.slug != model.slug
-+            || latest.selected_collaboration_mode().model()
-+                != codex_protocol::openai_models::ASTRA_JEV_MODEL
++            || latest.selected_collaboration_mode().model() != selection
 +        {
 +            return Err(failure(
 +                "model changed during evaluation; submit again to evaluate the selected model",
@@ -14235,8 +14234,8 @@ index 0000000..91a781a
 +    ) -> Result<()> {
 +        if step.settings.reasoning_effort() != Some(&applied.effort)
 +            || step.settings.model_info.slug != applied.model
-+            || step.settings.selected_collaboration_mode().model()
-+                != codex_protocol::openai_models::ASTRA_JEV_MODEL
++            || jev_base_model(step.settings.selected_collaboration_mode().model())
++                != Some(applied.model.as_str())
 +        {
 +            return Err(failure(
 +                "selected settings were not captured by the sampling step",
@@ -14272,7 +14271,7 @@ index 0000000..91a781a
 +    }
 +}
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index 1f80548..173b679 100644
+index 1f80548e4e1115f47dc19025c42cc7a012032e60..87d0431562f66d0710dd724025ff4b4e6c33e5dd 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
 @@ -420,6 +420,21 @@ pub(crate) async fn run_turn(
@@ -14280,16 +14279,16 @@ index 1f80548..173b679 100644
  
      let mut next_step_context = Some(first_step_context);
 +    #[cfg(not(unix))]
-+    if turn_context
-+        .current_settings
-+        .load()
-+        .selected_collaboration_mode()
-+        .model()
-+        == codex_protocol::openai_models::ASTRA_JEV_MODEL
++    if codex_protocol::openai_models::jev_base_model(
++        turn_context
++            .current_settings
++            .load()
++            .selected_collaboration_mode()
++            .model(),
++    )
++    .is_some()
 +    {
-+        return Err(CodexErr::Fatal(
-+            "Astra-Jev requires a Unix platform".to_owned(),
-+        ));
++        return Err(CodexErr::Fatal("Jev requires a Unix platform".to_owned()));
 +    }
 +    #[cfg(unix)]
 +    let mut step_controller =
@@ -14340,18 +14339,23 @@ index 1f80548..173b679 100644
          | EventMsg::RealtimeConversationStarted(_)
          | EventMsg::RealtimeConversationSdp(_)
 diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
-index e5a21b6..5ab80d5 100644
+index e5a21b6e8e57ba5ab30c034203559860fea626d7..f3e572239feea1ef570566a760549f9d1f88d688 100644
 --- a/codex-rs/core/src/session/turn_context.rs
 +++ b/codex-rs/core/src/session/turn_context.rs
-@@ -673,10 +673,24 @@ impl TurnContext {
+@@ -673,10 +673,31 @@ impl TurnContext {
              ),
              network: self.turn_context_network_item(),
              file_system_sandbox_policy: self.non_legacy_file_system_sandbox_policy(),
 -            model: self.model_info().slug.clone(),
-+            model: if self.initial_settings.selected_collaboration_mode().model()
-+                == codex_protocol::openai_models::ASTRA_JEV_MODEL
++            model: if codex_protocol::openai_models::jev_base_model(
++                self.initial_settings.selected_collaboration_mode().model(),
++            )
++            .is_some()
 +            {
-+                codex_protocol::openai_models::ASTRA_JEV_MODEL.to_string()
++                self.initial_settings
++                    .selected_collaboration_mode()
++                    .model()
++                    .to_string()
 +            } else {
 +                self.model_info().slug.clone()
 +            },
@@ -14359,8 +14363,10 @@ index e5a21b6..5ab80d5 100644
              personality: self.personality(),
 -            collaboration_mode: Some(self.collaboration_mode()),
 +            collaboration_mode: Some(
-+                if self.initial_settings.selected_collaboration_mode().model()
-+                    == codex_protocol::openai_models::ASTRA_JEV_MODEL
++                if codex_protocol::openai_models::jev_base_model(
++                    self.initial_settings.selected_collaboration_mode().model(),
++                )
++                .is_some()
 +                {
 +                    self.initial_settings.selected_collaboration_mode().clone()
 +                } else {
@@ -14433,109 +14439,118 @@ index b56a56f..4430d53 100644
              notification.thread_id == thread_id
                  && notification
 diff --git a/codex-rs/models-manager/src/manager.rs b/codex-rs/models-manager/src/manager.rs
-index c7b1a19..d2a0bb0 100644
+index c7b1a19ad58e0d2c3f0300f3a3df9a42143c19bb..697848ceb33982a01b6096a073fad647c6657bf0 100644
 --- a/codex-rs/models-manager/src/manager.rs
 +++ b/codex-rs/models-manager/src/manager.rs
-@@ -159,6 +159,19 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
+@@ -159,6 +159,22 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
              .is_some_and(AuthManager::current_auth_uses_codex_backend);
          presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
  
-+        if let Some(base) = presets.iter().find(|preset| {
-+            preset.model == codex_protocol::openai_models::ASTRA_JEV_BASE_MODEL
-+                && preset.show_in_picker
-+        }) {
-+            let mut adaptive = base.clone();
-+            adaptive.id = codex_protocol::openai_models::ASTRA_JEV_MODEL.to_string();
-+            adaptive.model = adaptive.id.clone();
-+            adaptive.display_name = adaptive.id.clone();
-+            adaptive.description =
-+                "Astra with Jev choosing reasoning effort before each generation".to_string();
-+            adaptive.is_default = false;
-+            presets.push(adaptive);
++        for (alias, base_model, name) in codex_protocol::openai_models::JEV_MODELS {
++            if let Some(base) = presets
++                .iter()
++                .find(|preset| preset.model == base_model && preset.show_in_picker)
++            {
++                let mut adaptive = base.clone();
++                adaptive.id = alias.to_string();
++                adaptive.model = adaptive.id.clone();
++                adaptive.display_name = name.to_string();
++                adaptive.description = format!(
++                    "{base_model} with Jev choosing reasoning effort before each generation"
++                );
++                adaptive.is_default = false;
++                presets.push(adaptive);
++            }
 +        }
          ModelPreset::mark_default_by_picker_visibility(&mut presets);
  
          presets
-@@ -730,6 +743,11 @@ pub(crate) fn construct_model_info_from_candidates(
+@@ -730,6 +746,7 @@ pub(crate) fn construct_model_info_from_candidates(
      candidates: &[ModelInfo],
      config: &ModelsManagerConfig,
  ) -> ModelInfo {
-+    let model = if model == codex_protocol::openai_models::ASTRA_JEV_MODEL {
-+        codex_protocol::openai_models::ASTRA_JEV_BASE_MODEL
-+    } else {
-+        model
-+    };
++    let model = codex_protocol::openai_models::jev_base_model(model).unwrap_or(model);
      // First use the normal longest-prefix match. If that misses, allow a narrowly scoped
      // retry for namespaced slugs like `custom/gpt-5.3-codex`.
      let remote = find_model_by_longest_prefix(model, candidates)
 diff --git a/codex-rs/models-manager/src/manager_tests.rs b/codex-rs/models-manager/src/manager_tests.rs
-index 4ef2971..805918a 100644
+index 4ef297142abc8921828a2169bc25efda941b82ff..e42f4e23e6144f8a5957365656eaf4fd173d742e 100644
 --- a/codex-rs/models-manager/src/manager_tests.rs
 +++ b/codex-rs/models-manager/src/manager_tests.rs
-@@ -1623,3 +1623,52 @@ fn bundled_models_json_roundtrips() {
+@@ -1623,3 +1623,44 @@ fn bundled_models_json_roundtrips() {
          "bundled models.json should contain at least one model"
      );
  }
 +
 +#[tokio::test]
-+async fn jev_selection_keeps_base_metadata_and_plain_astra() {
-+    use codex_protocol::openai_models::{ASTRA_JEV_BASE_MODEL, ASTRA_JEV_MODEL};
-+    let mut base = remote_model(ASTRA_JEV_BASE_MODEL, "Astra", 0);
-+    base.use_responses_lite = true;
-+    let manager = StaticModelsManager::new(
-+        None,
-+        ModelsResponse {
-+            models: vec![base.clone()],
-+        },
-+    );
-+    let presets = manager.try_list_models().unwrap();
-+    assert_eq!(presets.len(), 2);
-+    assert_eq!(presets[0].model, ASTRA_JEV_BASE_MODEL);
-+    assert_eq!(presets[1].model, ASTRA_JEV_MODEL);
-+    assert_eq!(
-+        presets[1].supported_reasoning_efforts,
-+        presets[0].supported_reasoning_efforts
-+    );
-+    let config = ModelsManagerConfig::default();
-+    let selected = manager.get_model_info(ASTRA_JEV_MODEL, &config).await;
-+    let plain = manager.get_model_info(ASTRA_JEV_BASE_MODEL, &config).await;
-+    assert_eq!(selected, plain);
-+    assert!(!selected.used_fallback_model_metadata);
++async fn jev_selections_keep_each_base_models_metadata() {
++    for (alias, base_model, name) in codex_protocol::openai_models::JEV_MODELS {
++        let mut base = remote_model(base_model, base_model, 0);
++        base.use_responses_lite = true;
++        let manager = StaticModelsManager::new(None, ModelsResponse { models: vec![base] });
++        let presets = manager.try_list_models().unwrap();
++        assert_eq!(presets.len(), 2);
++        assert_eq!(presets[0].model, base_model);
++        assert_eq!(presets[1].model, alias);
++        assert_eq!(presets[1].display_name, name);
++        assert_eq!(
++            presets[1].supported_reasoning_efforts,
++            presets[0].supported_reasoning_efforts
++        );
++        let config = ModelsManagerConfig::default();
++        let selected = manager.get_model_info(alias, &config).await;
++        let plain = manager.get_model_info(base_model, &config).await;
++        assert_eq!(selected, plain);
++        assert!(!selected.used_fallback_model_metadata);
++    }
 +}
 +
 +#[test]
-+fn jev_selection_is_absent_without_available_astra() {
++fn jev_selections_are_absent_without_available_base_models() {
++    let hidden = codex_protocol::openai_models::JEV_MODELS
++        .into_iter()
++        .map(|(_, base, _)| remote_model_with_visibility(base, base, 0, "hide"))
++        .collect();
 +    for models in [
 +        vec![],
 +        vec![remote_model("another-model", "Other", 0)],
-+        vec![remote_model_with_visibility(
-+            "gpt-6-astra",
-+            "Astra",
-+            0,
-+            "hide",
-+        )],
++        hidden,
 +    ] {
 +        let manager = StaticModelsManager::new(None, ModelsResponse { models });
-+        assert!(
-+            !manager
-+                .try_list_models()
-+                .unwrap()
-+                .iter()
-+                .any(|preset| preset.model == codex_protocol::openai_models::ASTRA_JEV_MODEL)
-+        );
++        assert!(!manager.try_list_models().unwrap().iter().any(|preset| {
++            codex_protocol::openai_models::jev_base_model(&preset.model).is_some()
++        }));
 +    }
 +}
 diff --git a/codex-rs/protocol/src/openai_models.rs b/codex-rs/protocol/src/openai_models.rs
-index 79f268c..8df2f04 100644
+index 79f268ce3bad5a930e338e11374cd3b13807e95f..e83a025f958a945549e579c63e727b15513bc2b3 100644
 --- a/codex-rs/protocol/src/openai_models.rs
 +++ b/codex-rs/protocol/src/openai_models.rs
-@@ -53,6 +53,10 @@ pub use guardian_v2::GuardianV2TranscriptModelConfig;
+@@ -53,6 +53,28 @@ pub use guardian_v2::GuardianV2TranscriptModelConfig;
  pub const MODEL_SPECIALTY_CYBER: &str = "cyber";
  pub const SPEED_TIER_FAST: &str = "fast";
  
 +/// Local adaptive-effort selection. Requests still use the underlying model.
 +pub const ASTRA_JEV_MODEL: &str = "Astra-Jev";
 +pub const ASTRA_JEV_BASE_MODEL: &str = "gpt-6-astra";
++// Stable selection IDs, provider model IDs, and user-facing names.
++pub const JEV_MODELS: [(&str, &str, &str); 3] = [
++    (ASTRA_JEV_MODEL, ASTRA_JEV_BASE_MODEL, "Astra Ares"),
++    ("Luna-Jev", "gpt-6-luna", "Luna Ares"),
++    ("Sol-Jev", "gpt-6-sol", "Sol Ares"),
++];
++
++pub fn jev_base_model(selection: &str) -> Option<&'static str> {
++    JEV_MODELS
++        .iter()
++        .find_map(|(alias, base, _)| (*alias == selection).then_some(*base))
++}
++
++pub fn jev_display_name(selection: &str) -> Option<&'static str> {
++    JEV_MODELS
++        .iter()
++        .find_map(|(alias, _, name)| (*alias == selection).then_some(*name))
++}
 +
  /// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning
  #[derive(Debug, Default, Clone, PartialEq, Eq, TS, Hash)]
@@ -14688,24 +14703,42 @@ index 0000000..323a6f7
 +");
 +}
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index 2155103..9d7b89f 100644
+index 2155103740617250cbf5d26195067106fa413fd1..12e79047e48bde2f328ec2bf56b455ef8feba979 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
+@@ -92,7 +92,7 @@ impl ChatWidget {
+         let current_label = presets
+             .iter()
+             .find(|preset| preset.model.as_str() == current_model)
+-            .map(|preset| preset.model.to_string())
++            .map(|preset| crate::model_catalog::model_display_name(&preset.model).to_string())
+             .unwrap_or_else(|| self.model_display_name().to_string());
+ 
+         let (mut auto_presets, other_presets): (Vec<ModelPreset>, Vec<ModelPreset>) = presets
 @@ -232,7 +232,8 @@ impl ChatWidget {
              let description =
                  (!preset.description.is_empty()).then_some(preset.description.to_string());
              let is_current = preset.model.as_str() == self.current_model();
 -            let single_supported_effort = preset.supported_reasoning_efforts.len() == 1;
 +            let single_supported_effort = preset.supported_reasoning_efforts.len() == 1
-+                || preset.model == codex_protocol::openai_models::ASTRA_JEV_MODEL;
++                || codex_protocol::openai_models::jev_base_model(&preset.model).is_some();
              let preset_for_action = preset.clone();
              let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                  let preset_for_event = preset_for_action.clone();
+@@ -241,7 +242,7 @@ impl ChatWidget {
+                 });
+             })];
+             items.push(SelectionItem {
+-                name: preset.model.clone(),
++                name: crate::model_catalog::model_display_name(&preset.model).to_string(),
+                 description,
+                 is_current,
+                 is_default: preset.is_default,
 @@ -441,6 +442,10 @@ impl ChatWidget {
      /// Max and Ultra require an explicit second step so expensive efforts cannot
      /// be selected accidentally while moving through the normal effort scale.
      pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
-+        if preset.model == codex_protocol::openai_models::ASTRA_JEV_MODEL {
++        if codex_protocol::openai_models::jev_base_model(&preset.model).is_some() {
 +            self.apply_model_and_effort(preset.model, None);
 +            return;
 +        }
@@ -14760,7 +14793,7 @@ index 97e447e..f05e86f 100644
                      .message
 diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__jev_model_selection.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__jev_model_selection.snap
 new file mode 100644
-index 0000000..e405ca2
+index 0000000000000000000000000000000000000000..7184135a3892f8f10c5ab9587a4f61b99dada90a
 --- /dev/null
 +++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__jev_model_selection.snap
 @@ -0,0 +1,10 @@
@@ -14771,7 +14804,7 @@ index 0000000..e405ca2
 +  Select Model and Effort
 +  Access legacy models by running codex -m <model_name> or in your config.toml
 +
-+› 1. Astra-Jev  Astra with automatic effort from Jev
++› 1. Astra Ares  Astra with automatic effort from Jev
 +
 +  Press enter to confirm or esc to go back
 diff --git a/codex-rs/tui/src/chatwidget/tests/app_server.rs b/codex-rs/tui/src/chatwidget/tests/app_server.rs
@@ -14812,42 +14845,47 @@ index c807212..430bf6b 100644
 +");
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs b/codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs
-index f9a9c44..58a7a09 100644
+index f9a9c446166f7a610e443b8f8ecdda1de8f9ac95..75f074d906cff297454973a0dc0fc5a132de1c6c 100644
 --- a/codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs
-@@ -4285,3 +4285,33 @@ async fn account_change_dismisses_the_previous_app_directory_snapshot() {
+@@ -4285,3 +4285,38 @@ async fn account_change_dismisses_the_previous_app_directory_snapshot() {
          format!("Before account change:\n{before}\n\nAfter account change:\n{after}")
      );
  }
 +
 +#[tokio::test]
 +async fn jev_model_picker_selects_automatic_effort_without_fixed_effort_popup() {
-+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-+    let mut preset = get_available_model(&chat, "gpt-5.5");
-+    preset.id = codex_protocol::openai_models::ASTRA_JEV_MODEL.to_string();
-+    preset.model = preset.id.clone();
-+    preset.display_name = preset.id.clone();
-+    preset.description = "Astra with automatic effort from Jev".to_string();
-+    preset.is_default = false;
-+    chat.open_model_popup_with_presets(vec![preset]);
-+    let popup = render_bottom_popup(&chat, 90);
-+    assert_chatwidget_snapshot!("jev_model_selection", popup);
-+    assert!(popup.contains("Astra-Jev"));
-+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-+    while let Ok(event) = rx.try_recv() {
-+        if let AppEvent::OpenReasoningPopup { model } = event {
-+            chat.open_reasoning_popup(model);
-+            break;
++    for (alias, _, name) in codex_protocol::openai_models::JEV_MODELS {
++        let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
++        let mut preset = get_available_model(&chat, "gpt-5.5");
++        preset.id = alias.to_string();
++        preset.model = preset.id.clone();
++        preset.display_name = name.to_string();
++        preset.description = "Astra with automatic effort from Jev".to_string();
++        preset.is_default = false;
++        chat.open_model_popup_with_presets(vec![preset]);
++        let popup = render_bottom_popup(&chat, 90);
++        if alias == codex_protocol::openai_models::ASTRA_JEV_MODEL {
++            assert_chatwidget_snapshot!("jev_model_selection", popup);
 +        }
-+    }
-+    let mut selection = None;
-+    while let Ok(event) = rx.try_recv() {
-+        if let AppEvent::PersistModelSelection { model, effort } = event {
-+            selection = Some((model, effort));
++        assert!(popup.contains(name));
++        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
++        while let Ok(event) = rx.try_recv() {
++            if let AppEvent::OpenReasoningPopup { model } = event {
++                chat.open_reasoning_popup(model);
++                break;
++            }
 +        }
++        let mut selection = None;
++        while let Ok(event) = rx.try_recv() {
++            if let AppEvent::PersistModelSelection { model, effort } = event {
++                selection = Some((model, effort));
++            }
++        }
++        assert_eq!(selection, Some((alias.to_string(), None)));
++        assert!(!render_bottom_popup(&chat, 90).contains("Select Reasoning"));
++        assert_eq!(crate::model_catalog::model_display_name(alias), name);
 +    }
-+    assert_eq!(selection, Some(("Astra-Jev".to_string(), None)));
-+    assert!(!render_bottom_popup(&chat, 90).contains("Select Reasoning"));
 +}
 diff --git a/sdk/python/src/openai_codex/generated/notification_registry.py b/sdk/python/src/openai_codex/generated/notification_registry.py
 index 2fbb504..a6be4d0 100644
@@ -14950,3 +14988,53 @@ index abe7ea4..c6f43f1 100644
          | TurnModerationMetadataServerNotification
          | ModelSafetyBufferingUpdatedServerNotification
          | WarningServerNotification
+diff --git a/codex-rs/tui/src/model_catalog.rs b/codex-rs/tui/src/model_catalog.rs
+index 6b89c9aeb04151fa9736c338871ccdee43c660f7..3a447e3d2d44fa490d4af4f3a87daf71f5b7d61e 100644
+--- a/codex-rs/tui/src/model_catalog.rs
++++ b/codex-rs/tui/src/model_catalog.rs
+@@ -11,7 +11,7 @@ pub(crate) fn model_display_name(model: &str) -> &str {
+     if model.eq_ignore_ascii_case(LUNA_RESERVE_MODEL) {
+         "Luna Reserve"
+     } else {
+-        model
++        codex_protocol::openai_models::jev_display_name(model).unwrap_or(model)
+     }
+ }
+ 
+diff --git a/codex-rs/tui/src/chatwidget/settings.rs b/codex-rs/tui/src/chatwidget/settings.rs
+index 61817a46c994fa2015c9c0c09e7718da8fabb8ea..60fc3f9a415889a15f893029f7dd8a174d413ace 100644
+--- a/codex-rs/tui/src/chatwidget/settings.rs
++++ b/codex-rs/tui/src/chatwidget/settings.rs
+@@ -670,7 +670,8 @@ impl ChatWidget {
+         if previous_mode != next_mode
+             && (previous_model != next_model || previous_effort != next_effort)
+         {
+-            let mut message = format!("Model changed to {next_model}");
++            let display_name = crate::model_catalog::model_display_name(next_model);
++            let mut message = format!("Model changed to {display_name}");
+             if !next_model.starts_with("codex-auto-") {
+                 let reasoning_label = match next_effort.as_ref() {
+                     None | Some(ReasoningEffortConfig::None) => "default",
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index ee4041233f060bc91cac54113ea0338a4fbb6e85..c0e8a0f969788f4e3f96e58f72fddb5baff519d4 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -1905,7 +1905,7 @@ impl App {
+                         .add_error_message(format!("Failed to save default model: {error}"));
+                 } else {
+                     self.chat_widget.add_info_message(
+-                        format!("Model changed to {model} {effort} for this conversation"),
++                        format!("Model changed to {} {effort} for this conversation", crate::model_catalog::model_display_name(&model)),
+                         /*hint*/ None,
+                     );
+                 }
+@@ -2154,7 +2154,8 @@ impl App {
+                             .map(std::string::ToString::to_string)
+                             .unwrap_or_else(|| "default".to_string());
+                         tracing::info!("Selected model: {model}, Selected effort: {effort_label}");
+-                        let mut message = format!("Model changed to {model}");
++                        let display_name = crate::model_catalog::model_display_name(&model);
++                        let mut message = format!("Model changed to {display_name}");
+                         if let Some(label) = Self::reasoning_label_for(&model, effort.as_ref()) {
+                             message.push(' ');
+                             message.push_str(&label);

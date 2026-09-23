@@ -78,8 +78,18 @@ try {
     if (options.binary) {
       config.codexBinary = resolve(options.binary);
       verifyBinary(config.codexBinary);
-    } else if (!existsSync(config.codexBinary ?? paths.binary))
-      await buildCodex(paths.home);
+    } else {
+      try {
+        verifyBinary(config.codexBinary ?? paths.binary);
+      } catch (error) {
+        if (config.codexBinary)
+          throw new Error(
+            `Configured codexBinary is incompatible: ${error.message} Rebuild it and use setup --binary, or remove codexBinary from ${paths.config} to build the managed binary.`,
+          );
+        console.log("Building the current native checkpoint...");
+        await buildCodex(paths.home);
+      }
+    }
     verifyBinary(config.codexBinary ?? paths.binary);
     saveConfig(paths.config, config);
     console.log(

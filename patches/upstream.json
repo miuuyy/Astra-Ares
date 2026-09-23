@@ -2,7 +2,7 @@
   "repository": "https://github.com/openai/codex",
   "commit": "4607249e430dac1c961df4dc615beae88e33cec8",
   "release": "rust-v0.155.0-alpha.9.2",
-  "patchSha256": "eed0ae3b455ebc39517c4547fa2980de29fbefcdb6c534de46d911288082bba6",
+  "patchSha256": "f968faa4981aa04f5f485cc782bb01f3497d202caf180aefb15a09d103538e5e",
   "sourceArchiveSha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
   "version": "0.155.0-alpha.9.2",
   "contextProtocol": 3,

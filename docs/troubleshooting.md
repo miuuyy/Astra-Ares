@@ -31,3 +31,19 @@ Codex's JSON output represents some native warnings as `item.type: error`. The e
 ## Build trouble
 
 `setup` fails on an archive/patch checksum mismatch, an incomplete build directory, or a stock binary without the native checkpoint. It does not continue with an unpatched CLI. For a failed source extraction, inspect/remove only the indicated build directory and rerun setup. Keep at least 10 GB free. Build artifacts can be removed after installation; keep `<data>/bin`, config, and Codex history.
+
+### macOS: `mis-aligned LINKEDIT string pool`
+
+This error can occur while Rust loads a proc-macro library such as `sqlx_macros`. The upstream `dev-small` profile strips symbols, which can produce a misaligned Mach-O string table rejected by the macOS 27 loader. See [issue #4](https://github.com/miuuyy/Astra-Ares/issues/4) and the [Rust report](https://github.com/rust-lang/rust/issues/157750).
+
+The installer now sets `CARGO_PROFILE_DEV_SMALL_STRIP=none` for macOS builds. It preserves the symbol table without enabling full debug information. Linux keeps the upstream profile. This is selected by build platform, not the reported macOS version, because the build toolchain and SDK affect the generated library.
+
+From an existing source checkout, update and retry:
+
+```sh
+git pull --ff-only
+npm ci
+npm run setup
+```
+
+Cargo rebuilds affected artifacts when the profile setting changes; deleting your configuration, login, sessions, or the entire build directory is unnecessary. The resulting macOS binaries and intermediate libraries may be larger.

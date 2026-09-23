@@ -13,6 +13,14 @@ import { Bridge } from "../../src/bridge.mjs";
 import { CodexRpc } from "./rpc.mjs";
 const binary = resolve(process.argv[2]),
   evidence = resolve(process.argv[3]);
+const baseModel = process.argv[4] ?? "gpt-6-astra";
+const alias = {
+  "gpt-6-astra": "Astra-Jev",
+  "gpt-6-sol": "Sol-Jev",
+  "gpt-6-luna": "Luna-Jev",
+}[baseModel];
+assert(alias, "Unknown fixture model");
+const displayName = alias.replace("-Jev", " Ares");
 mkdirSync(evidence, { recursive: true });
 const socketDir = mkdtempSync(join(tmpdir(), "cj-select-"));
 const home = join(evidence, "home");
@@ -24,6 +32,9 @@ const astra = structuredClone(
   catalog.models.find((m) => m.slug === "gpt-6-astra"),
 );
 astra.use_responses_lite = true;
+// Local fixture metadata; capabilities come from the selected catalog entry.
+astra.slug = baseModel;
+astra.display_name = baseModel;
 writeFileSync(
   join(evidence, "models.json"),
   JSON.stringify({ models: [astra] }),
@@ -46,7 +57,7 @@ const server = Bun.serve({
       const body = JSON.parse(bytes);
       assert.equal(
         body.model,
-        "gpt-6-astra",
+        baseModel,
         "logical alias must never reach the provider",
       );
       requests.push({ phase, body });
@@ -97,13 +108,18 @@ const bridge = new Bridge({
   record: (r) => records.push(r),
   jev: {
     decide: async (state) => {
+      assert.equal(state.model, baseModel);
+      assert.deepEqual(
+        state.supportedEfforts,
+        astra.supported_reasoning_levels.map((level) => level.effort),
+      );
       states.push({ phase, state });
       return { effort: "low", leaseSteps: 10, jevMs: 0, cost: "0" };
     },
   },
 });
 const settings = {
-  model: '"gpt-6-astra"',
+  model: JSON.stringify(baseModel),
   model_provider: '"fixture"',
   "model_providers.fixture": `{name="OpenAI",base_url="http://127.0.0.1:${server.port}/v1",wire_api="responses",requires_openai_auth=false,supports_websockets=false,request_max_retries=0,stream_max_retries=0}`,
   model_catalog_json: JSON.stringify(join(evidence, "models.json")),
@@ -141,7 +157,7 @@ async function connect(withBridge = true) {
         .call("turn/settings/update", {
           threadId: m.params.threadId,
           turnId: m.params.turnId,
-          model: m.params.arguments.step === 1 ? "gpt-6-astra" : "Astra-Jev",
+          model: m.params.arguments.step === 1 ? baseModel : alias,
           effort: "medium",
         })
         .then((result) => {
@@ -187,10 +203,14 @@ try {
   await bridge.start();
   await connect();
   const models = await rpc.call("model/list", { includeHidden: false });
-  assert(models.data.some((m) => m.model === "Astra-Jev"));
-  assert(models.data.some((m) => m.model === "gpt-6-astra"));
+  assert(models.data.some((m) => m.model === alias));
+  assert.equal(
+    models.data.find((m) => m.model === alias).displayName,
+    displayName,
+  );
+  assert(models.data.some((m) => m.model === baseModel));
   const created = await rpc.call("thread/start", {
-    model: "gpt-6-astra",
+    model: baseModel,
     cwd: evidence,
     approvalPolicy: "never",
     sandbox: "read-only",
@@ -213,14 +233,14 @@ try {
   assert.equal(states.length, 0);
   let updated = await rpc.call("thread/settings/update", {
     threadId: id,
-    model: "Astra-Jev",
+    model: alias,
   });
   assert.deepEqual(updated, {});
   assert.equal((await run(id, "adaptive")).status, "completed");
   assert.equal(states.length, 1);
   await rpc.call("thread/settings/update", {
     threadId: id,
-    model: "gpt-6-astra",
+    model: baseModel,
     effort: "medium",
   });
   assert.equal((await run(id, "plain-again")).status, "completed");
@@ -228,14 +248,14 @@ try {
   assert.equal(requests.at(-1).body.reasoning.effort, "medium");
   await rpc.call("thread/settings/update", {
     threadId: id,
-    model: "Astra-Jev",
+    model: alias,
   });
   assert.equal((await run(id, "adaptive-again")).status, "completed");
   assert.equal(states.length, 2);
   rpc.stop();
   await connect();
   const resumed = await rpc.call("thread/resume", { threadId: id });
-  assert.equal(resumed.model, "Astra-Jev");
+  assert.equal(resumed.model, alias);
   assert.equal((await run(id, "resumed")).status, "completed");
   assert.equal(states.length, 3);
   assert.equal((await run(id, "live-switch")).status, "completed");
@@ -260,7 +280,7 @@ try {
   rpc.stop();
   await connect(false);
   const missing = await rpc.call("thread/start", {
-    model: "Astra-Jev",
+    model: alias,
     cwd: evidence,
     approvalPolicy: "never",
     sandbox: "read-only",
@@ -268,11 +288,11 @@ try {
   const before = requests.length;
   const failed = await run(missing.thread.id, "missing-bridge");
   assert.equal(failed.status, "failed");
-  assert.match(failed.error.message, /Launch codex-jev/);
+  assert.match(failed.error.message, /Launch astra-ares/);
   assert.equal(requests.length, before);
   await rpc.call("thread/settings/update", {
     threadId: missing.thread.id,
-    model: "gpt-6-astra",
+    model: baseModel,
     effort: "medium",
   });
   assert.equal(
@@ -285,7 +305,7 @@ try {
     passed: true,
     scope:
       "Actual native CLI/app-server with explicit local provider and Jev fixtures",
-    modelPicker: ["gpt-6-astra", "Astra-Jev"],
+    modelPicker: [baseModel, displayName],
     aliasNeverSentToProvider: true,
     plainModelZeroJevCalls: true,
     selectionPersistsAcrossRestart: true,

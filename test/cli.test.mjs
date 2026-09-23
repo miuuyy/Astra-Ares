@@ -245,3 +245,28 @@ test("openjev doctor reports the endpoint and probes it with the configured mode
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("setup rejects an adopted Astra-only binary without overwriting it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-old-binary-"));
+  const binary = join(dir, "codex");
+  const file = join(dir, "config.json");
+  const old =
+    "CODEX_STEP_CONTROLLER_CONTEXT_V3\nAstra-Jev requires its bridge\n";
+  try {
+    writeFileSync(binary, old);
+    writeFileSync(
+      file,
+      JSON.stringify({ provider: "openrouter", codexBinary: binary }),
+    );
+    const result = invoke(["setup"], {
+      ARES_CONFIG: file,
+      ARES_HOME: join(dir, "data"),
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Configured codexBinary is incompatible/);
+    assert.match(result.stderr, /setup --binary/);
+    assert.equal(readFileSync(binary, "utf8"), old);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

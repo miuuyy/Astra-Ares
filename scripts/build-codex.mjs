@@ -14,6 +14,15 @@ import { spawn } from "node:child_process";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const hash = (file) =>
   createHash("sha256").update(readFileSync(file)).digest("hex");
+export function nativeBuildEnv(env = process.env, platform = process.platform) {
+  return {
+    ...env,
+    CARGO_INCREMENTAL: "0",
+    // Rust's Mach-O stripping can misalign the LINKEDIT string table in
+    // proc-macro dylibs. macOS 27's loader rejects those libraries (#4).
+    ...(platform === "darwin" ? { CARGO_PROFILE_DEV_SMALL_STRIP: "none" } : {}),
+  };
+}
 export async function run(command, args, options = {}) {
   const child = spawn(command, args, { stdio: "inherit", ...options });
   await new Promise((resolve, reject) => {
@@ -34,7 +43,11 @@ export async function buildCodex(home) {
   const patch = join(root, "patches/native-checkpoint.patch");
   if (hash(patch) !== meta.patchSha256)
     throw new Error("Codex patch checksum mismatch");
-  const build = join(home, "build", meta.commit),
+  const build = join(
+      home,
+      "build",
+      `${meta.commit}-${meta.patchSha256.slice(0, 12)}`,
+    ),
     source = join(build, "source");
   mkdirSync(build, { recursive: true, mode: 0o700 });
   const archive = join(build, "source.tar.gz");
@@ -87,7 +100,7 @@ export async function buildCodex(home) {
     ],
     {
       cwd: join(source, "codex-rs"),
-      env: { ...process.env, CARGO_INCREMENTAL: "0" },
+      env: nativeBuildEnv(),
     },
   );
   const target = `${process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : "unsupported"}-${process.platform === "darwin" ? "apple-darwin" : "unknown-linux-musl"}`;

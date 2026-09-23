@@ -1,7 +1,7 @@
 {
   "name": "astra-ares",
   "version": "0.2.1",
-  "description": "Adaptive reasoning effort for GPT-6 Astra during Codex tasks, powered by Jev to reduce token usage.",
+  "description": "Adaptive reasoning effort for GPT-6 Astra, Sol and Luna during Codex tasks, powered by Jev to reduce token usage.",
   "type": "module",
   "license": "MIT",
   "engines": {
