@@ -2,6 +2,7 @@ import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
 import { ProviderError, responseError, retryDelay } from "./provider-error.mjs";
+import { renderState } from "./state-text.mjs";
 
 export const EFFORTS = [
   "none",
@@ -73,6 +74,8 @@ export function decisionRequest(state, maxLeaseSteps = 10) {
   };
 }
 
+export const PROVIDERS = ["vercel", "typesafe", "openrouter", "openjev"];
+
 export function validateDecision(
   result,
   maxLeaseSteps = 10,
@@ -86,8 +89,9 @@ export function validateDecision(
       : provider === "openrouter"
         ? /^typesafe\/jev-1\.13(?:-\d{8})?$/.test(result.model ?? "") &&
           result.provider === "TypeSafe"
-        : provider === "typesafe" &&
-          /^jev-(?:\d+\.\d+(?:\.\d+)?|latest)$/.test(result.model ?? "");
+        : provider === "typesafe"
+          ? /^jev-(?:\d+\.\d+(?:\.\d+)?|latest)$/.test(result.model ?? "")
+          : typeof result.model === "string" && result.model.length > 0;
   if (
     !modelMatches ||
     result.answers?.effort?.type !== "choice" ||
@@ -120,8 +124,18 @@ export function validateDecision(
             inputTokens: result.usage?.input_tokens,
             outputTokens: result.usage?.output_tokens,
           },
-    cost: provider === "openrouter" ? result.usage?.cost : gateway?.cost,
-    generationId: provider === "openrouter" ? result.id : gateway?.generationId,
+    cost:
+      provider === "openrouter"
+        ? result.usage?.cost
+        : provider === "vercel"
+          ? gateway?.cost
+          : null,
+    generationId:
+      provider === "openrouter"
+        ? result.id
+        : provider === "vercel"
+          ? gateway?.generationId
+          : result.id,
     probabilities: result.answers.effort.probabilities,
   };
 }
@@ -130,6 +144,8 @@ export class Jev {
   constructor({
     apiKey,
     provider = "vercel",
+    baseUrl,
+    decisionModel,
     maxLeaseSteps = 10,
     fetchImpl = fetch,
     record = () => {},
@@ -137,13 +153,31 @@ export class Jev {
     maxAttempts = 3,
     deadlineMs = 30_000,
   }) {
-    if (!apiKey || /\s/.test(apiKey))
-      throw new Error("A Jev API key is required");
-    if (!["vercel", "typesafe", "openrouter"].includes(provider))
+    if (!PROVIDERS.includes(provider))
       throw new Error("Unsupported Jev provider");
+    if (provider === "openjev") {
+      if (!baseUrl || /\s/.test(baseUrl.trim()))
+        throw new Error("An openjev baseUrl (http or https) is required");
+      let parsed;
+      try {
+        parsed = new URL(baseUrl);
+      } catch {
+        throw new Error("openjev baseUrl must be a valid absolute URL");
+      }
+      if (!["http:", "https:"].includes(parsed.protocol))
+        throw new Error("openjev baseUrl must use http or https");
+      if (parsed.search || parsed.hash)
+        throw new Error("openjev baseUrl must not contain a query or fragment");
+      if (apiKey !== undefined && /\s/.test(String(apiKey).trim()))
+        throw new Error("A Jev API key must not contain whitespace");
+    } else if (!apiKey || /\s/.test(apiKey)) {
+      throw new Error("A Jev API key is required");
+    }
     Object.assign(this, {
-      apiKey,
+      apiKey: apiKey?.trim() || undefined,
       provider,
+      baseUrl: baseUrl?.trim().replace(/\/+$/, ""),
+      decisionModel: decisionModel?.trim() || undefined,
       maxLeaseSteps,
       fetchImpl,
       record,
@@ -160,6 +194,10 @@ export class Jev {
     } else if (this.provider === "openrouter") {
       request.model = "typesafe/jev-1.13";
       request.provider = { only: ["typesafe"], allow_fallbacks: false };
+      delete request.providerOptions;
+    } else if (this.provider === "openjev") {
+      request.model = this.decisionModel ?? "open-jev";
+      request.state = renderState(request.state);
       delete request.providerOptions;
     }
     const body = JSON.stringify(request);
@@ -191,7 +229,9 @@ export class Jev {
         ? "https://ai-gateway.vercel.sh/v1/evaluate"
         : this.provider === "openrouter"
           ? "https://openrouter.ai/api/alpha/decisions"
-          : "https://api.typesafe.ai/v1/systemone";
+          : this.provider === "openjev"
+            ? `${this.baseUrl}/v1/systemone`
+            : "https://api.typesafe.ai/v1/systemone";
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       signal?.throwIfAborted();
       if (deadline.aborted)
@@ -201,13 +241,12 @@ export class Jev {
           retryable: false,
         });
       let response;
+      const headers = { "content-type": "application/json" };
+      if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
       try {
         response = await this.fetchImpl(url, {
           method: "POST",
-          headers: {
-            authorization: `Bearer ${this.apiKey}`,
-            "content-type": "application/json",
-          },
+          headers,
           body,
           signal: combined,
           redirect: "error",

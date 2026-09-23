@@ -16,19 +16,21 @@ import { Jev } from "../src/jev.mjs";
 import { buildCodex } from "../scripts/build-codex.mjs";
 const help = `Astra-Ares — Adaptive Reasoning Effort Selection
 
-ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter]
-ares configure [--provider vercel|typesafe|openrouter] [--key-stdin]
-ares doctor [--probe]
-ares config-path
+astra-ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter|openjev] [--base-url http://host:8890] [--model name]
+astra-ares configure [--provider vercel|typesafe|openrouter|openjev] [--base-url http://host:8890] [--model name] [--key-stdin]
+astra-ares doctor [--probe]
+astra-ares config-path
 astra-ares [ordinary Codex CLI arguments]
 
 Config: $ARES_CONFIG or ~/.config/astra-ares/config.json
 Data:   $ARES_HOME or ~/.local/share/astra-ares
 setup builds an isolated pinned Codex. --binary adopts an already patched build.
 configure reads a key without echo; --key-stdin accepts a piped secret.
+For openjev, --base-url points at a local decision service (TypeSafe-shaped
+/v1/systemone); the API key is optional there.
 New installations use OpenRouter. Existing configurations keep their provider.
 Vercel: AI_GATEWAY_API_KEY. Direct TypeSafe: TYPESAFE_API_KEY.
-OpenRouter Decisions: OPENROUTER_API_KEY.
+OpenRouter Decisions: OPENROUTER_API_KEY. openjev: OPENJEV_API_KEY (optional).
 `;
 function parse(args) {
   const options = {};
@@ -36,7 +38,7 @@ function parse(args) {
     const arg = args.shift();
     if (["--probe", "--key-stdin"].includes(arg)) options[arg.slice(2)] = true;
     else if (
-      ["--binary", "--provider"].includes(arg) &&
+      ["--binary", "--provider", "--base-url", "--model"].includes(arg) &&
       args[0] &&
       !args[0].startsWith("--")
     )
@@ -51,9 +53,14 @@ try {
   const command = process.argv[2] ?? "help";
   const options = parse(process.argv.slice(3));
   const allowedOptions = {
-    setup: ["binary", "provider"],
-    configure: ["provider", "key-stdin"],
+    setup: ["binary", "provider", "base-url", "model"],
+    configure: ["provider", "key-stdin", "base-url", "model"],
     doctor: ["probe"],
+  };
+  const applyEndpointOptions = (config) => {
+    if (options["base-url"]) config.baseUrl = options["base-url"];
+    if (options.model) config.model = options.model;
+    return config;
   };
   for (const option of Object.keys(options))
     if (!(allowedOptions[command] ?? []).includes(option))
@@ -66,6 +73,7 @@ try {
       ? readConfig(paths.config)
       : { provider: options.provider ?? "openrouter", maxLeaseSteps: 10 };
     if (options.provider) config.provider = options.provider;
+    applyEndpointOptions(config);
     validateConfig(config);
     if (options.binary) {
       config.codexBinary = resolve(options.binary);
@@ -92,12 +100,17 @@ try {
       ? readConfig(paths.config)
       : { provider: "openrouter", maxLeaseSteps: 10 };
     if (options.provider) config.provider = options.provider;
+    applyEndpointOptions(config);
     let key;
+    let prompted = false;
     if (options["key-stdin"]) key = readFileSync(0, "utf8").trim();
-    else {
-      if (!process.stdin.isTTY)
-        throw new Error("Use --key-stdin for a piped key");
-      process.stderr.write("Jev API key (hidden): ");
+    else if (process.stdin.isTTY) {
+      prompted = true;
+      process.stderr.write(
+        config.provider === "openjev"
+          ? "Jev API key (hidden, empty for a local service without auth): "
+          : "Jev API key (hidden): ",
+      );
       const output = new Writable({
         write(_chunk, _encoding, done) {
           done();
@@ -114,24 +127,41 @@ try {
         rl.close();
         process.stderr.write("\n");
       }
+    } else if (config.provider !== "openjev")
+      throw new Error("Use --key-stdin for a piped key");
+    if (prompted || options["key-stdin"]) {
+      if (!key) {
+        if (config.provider !== "openjev") throw new Error("Invalid API key");
+        delete config.apiKeyFile;
+        delete config.apiKeyEnv;
+        delete config.apiKey;
+      } else {
+        if (/\s/.test(key)) throw new Error("Invalid API key");
+        delete config.apiKeyFile;
+        delete config.apiKeyEnv;
+        config.apiKey = key;
+      }
     }
-    if (!key || /\s/.test(key)) throw new Error("Invalid API key");
-    delete config.apiKeyFile;
-    delete config.apiKeyEnv;
-    config.apiKey = key;
     saveConfig(paths.config, config);
-    console.log(`Credential saved privately in ${paths.config}`);
+    console.log(`Configuration saved in ${paths.config}`);
   } else if (command === "doctor") {
     const config = loadConfig();
     verifyBinary(config.codexBinary ?? paths.binary);
     const key = readKey(config);
     console.log(
-      `Codex checkpoint: compatible\nProvider: ${config.provider}\nCredential: present\nConfig: ${paths.config}`,
+      `Codex checkpoint: compatible\nProvider: ${config.provider}` +
+        (config.provider === "openjev"
+          ? `\nBase URL: ${config.baseUrl}` +
+            (config.model ? `\nDecision model: ${config.model}` : "")
+          : "") +
+        `\nCredential: ${key ? "present" : config.provider === "openjev" ? "none (unauthenticated local service)" : "missing"}\nConfig: ${paths.config}`,
     );
     if (options.probe) {
       const decision = await new Jev({
         apiKey: key,
         provider: config.provider,
+        baseUrl: config.baseUrl,
+        decisionModel: config.model,
         maxLeaseSteps: config.maxLeaseSteps,
       }).decide({
         model: "gpt-6-astra",

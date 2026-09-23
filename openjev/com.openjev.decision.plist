@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.openjev.decision</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>NODE_PATH/bin/node</string>
+    <string>DEPLOY_DIR/openjev/service.mjs</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OPENJEV_PORT</key><string>8890</string>
+    <!-- Loopback only. To serve other LAN/tailnet machines, set this to
+         0.0.0.0 (or a specific interface address) AND add OPENJEV_TOKEN;
+         the service refuses a non-loopback bind without a token unless
+         OPENJEV_ALLOW_UNAUTHENTICATED is 1. -->
+    <key>OPENJEV_HOST</key><string>127.0.0.1</string>
+    <key>OPENJEV_BACKEND_URL</key><string>http://127.0.0.1:8911</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+  <key>StandardOutPath</key><string>HOME_PATH/.local/state/openjev/decision.log</string>
+  <key>StandardErrorPath</key><string>HOME_PATH/.local/state/openjev/decision.log</string>
+</dict>
+</plist>
