@@ -9,7 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { makeFakeCodex } from "./fixtures/fake-codex.mjs";
 const cli = resolve("bin/ares.mjs");
 function invoke(args, env, input) {
   return spawnSync(process.execPath, [cli, ...args], {
@@ -99,4 +102,146 @@ test("options for a different command fail instead of being ignored", () => {
   const result = invoke(["doctor", "--provider", "typesafe"], {});
   assert.equal(result.status, 1);
   assert.match(result.stderr, /not supported by doctor/);
+});
+test("openjev configure saves the endpoint and accepts an empty or absent key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-openjev-cli-"));
+  const file = join(dir, "config.json");
+  const env = { ARES_CONFIG: file, ARES_HOME: join(dir, "data") };
+  try {
+    const first = invoke(
+      [
+        "configure",
+        "--provider",
+        "openjev",
+        "--base-url",
+        "http://127.0.0.1:8890/",
+        "--model",
+        "open-jev",
+      ],
+      env,
+      "",
+    );
+    assert.equal(first.status, 0, first.stderr);
+    let saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.provider, "openjev");
+    assert.equal(saved.baseUrl, "http://127.0.0.1:8890");
+    assert.equal(saved.model, "open-jev");
+    assert.equal(saved.apiKey, undefined);
+    const keyed = invoke(["configure", "--key-stdin"], env, "local-token\n");
+    assert.equal(keyed.status, 0, keyed.stderr);
+    assert.equal(JSON.parse(readFileSync(file, "utf8")).apiKey, "local-token");
+    const cleared = invoke(["configure", "--key-stdin"], env, "\n");
+    assert.equal(cleared.status, 0, cleared.stderr);
+    saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.apiKey, undefined);
+    assert.equal(saved.baseUrl, "http://127.0.0.1:8890");
+    const spaced = invoke(["configure", "--key-stdin"], env, "a b\n");
+    assert.equal(spaced.status, 1);
+    assert.match(spaced.stderr, /Invalid API key/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("openjev configure requires a valid base URL; hosted providers still require a key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-openjev-cli-bad-"));
+  const env = {
+    ARES_CONFIG: join(dir, "config.json"),
+    ARES_HOME: join(dir, "data"),
+  };
+  try {
+    const missing = invoke(["configure", "--provider", "openjev"], env, "");
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /baseUrl/);
+    const query = invoke(
+      ["configure", "--provider", "openjev", "--base-url", "http://h:1/?x=1"],
+      env,
+      "",
+    );
+    assert.equal(query.status, 1);
+    const hosted = invoke(["configure", "--provider", "openrouter"], env, "");
+    assert.equal(hosted.status, 1);
+    assert.match(hosted.stderr, /--key-stdin/);
+    const elsewhere = invoke(
+      [
+        "configure",
+        "--provider",
+        "typesafe",
+        "--base-url",
+        "http://h:1",
+        "--key-stdin",
+      ],
+      env,
+      "fixture\n",
+    );
+    assert.equal(elsewhere.status, 1);
+    assert.match(elsewhere.stderr, /baseUrl/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("openjev doctor reports the endpoint and probes it with the configured model", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-openjev-doctor-"));
+  const file = join(dir, "config.json");
+  const requests = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      requests.push({
+        url: req.url,
+        auth: req.headers.authorization,
+        body: JSON.parse(body),
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          model: "local-decider",
+          id: "sysone-1",
+          answers: {
+            effort: { type: "choice", choice: "low" },
+            lease: { type: "choice", choice: "1" },
+          },
+          usage: { decisions: 2, latency_ms: 3 },
+        }),
+      );
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    writeFileSync(
+      file,
+      JSON.stringify({
+        provider: "openjev",
+        baseUrl,
+        model: "open-jev",
+        maxLeaseSteps: 10,
+        codexBinary: makeFakeCodex(dir),
+      }),
+    );
+    const env = {
+      ...process.env,
+      ARES_CONFIG: file,
+      ARES_HOME: join(dir, "data"),
+      OPENJEV_API_KEY: "",
+    };
+    const child = spawn(process.execPath, [cli, "doctor", "--probe"], { env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    child.stderr.on("data", (c) => (stderr += c));
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, new RegExp(`Base URL: ${baseUrl}`));
+    assert.match(stdout, /Decision model: open-jev/);
+    assert.match(stdout, /Credential: none \(unauthenticated local service\)/);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/v1/systemone");
+    assert.equal(requests[0].auth, undefined);
+    assert.equal(requests[0].body.model, "open-jev");
+    assert.equal(typeof requests[0].body.state, "string");
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

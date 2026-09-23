@@ -125,10 +125,11 @@ export function readKey(config, env = process.env) {
   return key;
 }
 export function saveConfig(file, config) {
-  validateConfig(config);
+  const { baseUrl } = validateConfig(config);
+  const stored = baseUrl ? { ...config, baseUrl } : config;
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const temp = `${file}.${process.pid}.new`;
-  writeFileSync(temp, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  writeFileSync(temp, JSON.stringify(stored, null, 2) + "\n", { mode: 0o600 });
   chmodSync(temp, 0o600);
   renameSync(temp, file);
 }
