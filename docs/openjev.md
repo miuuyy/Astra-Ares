@@ -1,11 +1,11 @@
 # The openjev provider
 
 `openjev` points Ares at a **locally running decision service** instead of a hosted
-Jev gateway. It speaks the same TypeSafe-shaped `/v1/systemone` contract that
-`spark-jev-stack/decision` on dgx-01 and `openjev/service.mjs` on the Mac serve,
-so the decision model runs on your own hardware — typically on the tailnet, a few
-hops away, with round trips around 150 ms instead of a public-internet round trip
-per decision.
+Jev gateway. It speaks the TypeSafe-shaped `/v1/systemone` contract served by
+`openjev/service.mjs` (see `openjev/README.md`) — and any other service
+implementing the same shape — so the decision model runs on your own hardware,
+typically on the LAN/tailnet, with round trips around 150 ms instead of a
+public-internet round trip per decision.
 
 ## Configuration
 

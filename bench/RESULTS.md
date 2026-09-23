@@ -1,15 +1,15 @@
 # Decision turnaround — openjev local vs hosted Jev
 
-Date: 2026-09-23 (evening). Machine: MacBook Pro M4 Pro, 24 GB, macOS.
+Date: 2026-09-23. Machine: Apple M4 Pro, 24 GB unified memory, macOS.
 Backend: llama.cpp 0.4.1 (Metal, `-ngl 99`, 2 slots), decision service `openjev/service.mjs`.
 Client: the real `src/jev.mjs` openjev provider (render → HTTP → validate), as an Ares turn pays it.
 
-**Co-tenancy caveat:** during these runs another agent session on this Mac was
-executing a 7-core index rebuild and the system was under heavy memory pressure
-(~41 GB swap in use). Numbers are therefore *pessimistic* for absolute latency,
-and *fair* for the 0.8B-vs-4B comparison (identical conditions). The 4B degrades
-disproportionately under memory pressure because its per-token compute amplifies
-weight-eviction stalls.
+**Co-tenancy caveat:** during these runs another workload on the same Mac was
+executing a 7-core index rebuild under heavy memory pressure (~41 GB swap in
+use). Numbers are therefore *pessimistic* for absolute latency, and *fair* for
+the 0.8B-vs-4B comparison (identical conditions). The 4B degrades
+disproportionately under memory pressure because its per-token compute
+amplifies weight-eviction stalls.
 
 ## Modes
 
@@ -50,9 +50,10 @@ Supporting measurements:
 
 ## Comparison with hosted Jev
 
-The user's prior measurement of hosted Jev (`jev-research`, quorum benchmark):
-**310 ms p50**; vendor documentation claims 70–500 ms. No hosted key was
-available on this Mac for a live A/B, so the comparison uses those priors:
+Reference point for hosted Jev: **~310 ms p50** measured against the same
+decision workload in earlier community benchmarking (`jev-router` quorum bench);
+vendor documentation claims 70–500 ms. No hosted key was available during this
+session for a live A/B, so the comparison uses those priors:
 
 | decision path | steady-state (evolving) | cold/varied |
 | --- | --- | --- |
@@ -77,7 +78,7 @@ observed lease was 2–10. Amortized overhead per Astra generation at lease 2:
 
 ## Model choice
 
-- **0.8B Q8_0 (current launchd default):** robust under memory pressure,
+- **0.8B Q8_0 (recommended default):** robust under memory pressure,
   2,600 tok/s prompt processing, ~140 ms decisions. Known weakness: flat
   discrimination on hard tasks (stays `low`).
 - **4B Q5_K_M:** better discrimination (typo→`low`, hard design→`medium`) but

@@ -1,20 +1,18 @@
 # openjev — local decision service
 
-The Mac-side half of the openjev port: a small, zero-dependency Node service that
-exposes the TypeSafe-shaped `/v1/systemone` decision contract in front of any
-OpenAI-compatible small model. It is the same shape as the `decision/` service in
-`spark-jev-stack` on dgx-01, so an Ares pointed at either one behaves identically.
+A small, zero-dependency Node service that exposes the TypeSafe-shaped
+`/v1/systemone` decision contract in front of any OpenAI-compatible small model.
+Point the `openjev` provider at it and Ares makes its decisions on your own
+hardware instead of a hosted gateway. It speaks the same shape as other local
+System One implementations, so any conforming decision service works.
 
 ## Why
 
 Ares asks Jev which reasoning effort (and lease length) to apply before every
-generation. With hosted providers each decision is a public-internet round trip.
-Running the decision model on the LAN removes that latency entirely:
-
-| path | measured |
-| --- | --- |
-| dgx-01 → MacBook (tailscale) → decision → reply | **~336 ms** round trip (Qwen3.5-4B) |
-| decision alone (localhost, warm, effort + lease) | **~350–1100 ms** depending on model |
+generation. With hosted providers each decision is a public-internet round trip
+(measured ~310 ms p50 in prior work). Running the decision model on the LAN
+removes that round trip; steady-state decisions on an M4 Pro measured
+**~140–180 ms** with the 0.8B model, and ~5–30 ms of that was the wire.
 
 Model choice matters more than speed here — it is the decision quality:
 
@@ -139,24 +137,19 @@ ares configure --provider openjev --base-url http://127.0.0.1:8890   # key: pres
 ares doctor --probe
 ```
 
-From another machine on the tailnet (e.g. a Spark):
+From another machine on your tailnet/LAN:
 
 ```jsonc
 // ~/.config/astra-ares/config.json on that machine
 {
   "provider": "openjev",
-  "baseUrl": "http://macbook:8890",
+  "baseUrl": "http://<decision-host>:8890",
   "maxLeaseSteps": 10
 }
 ```
 
-(`macbook` resolves via MagicDNS; `100.111.125.20` works too. Add
-`"apiKeyEnv": "OPENJEV_API_KEY"` if the service was started with `OPENJEV_TOKEN`.)
-
-The provider is also compatible with the dgx-01 `spark-jev-stack` decision
-service (`http://dgx-01:8890` / its tailscale HTTPS serve) — same contract,
-different host. Note that the GPU there is usually busy with the generation
-model; the Mac service is the intended default.
+(Use a MagicDNS/LAN hostname or IP; add `"apiKeyEnv": "OPENJEV_API_KEY"` if the
+service was started with `OPENJEV_TOKEN`.)
 
 ## Security notes
 
