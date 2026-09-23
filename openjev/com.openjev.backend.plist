@@ -6,7 +6,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/llama-server</string>
-    <string>--model</string><string>PATH_TO_HOME/ai/models/Qwen3.5-4B-Q5_K_M.gguf</string>
+    <string>--model</string><string>PATH_TO_HOME/ai/models/Qwen3.5-0.8B-Q8_0.gguf</string>
     <string>--port</string><string>8911</string>
     <string>--host</string><string>127.0.0.1</string>
     <string>-c</string><string>16384</string>
