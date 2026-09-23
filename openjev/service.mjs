@@ -7,21 +7,34 @@
 // generation is grammar-constrained to one letter, and per-option probabilities
 // are read from that token's top_logprobs — one forward pass per question.
 //
-// Env: OPENJEV_PORT (8890) OPENJEV_HOST (0.0.0.0) OPENJEV_BACKEND_URL
+// Env: OPENJEV_PORT (8890) OPENJEV_HOST (127.0.0.1) OPENJEV_BACKEND_URL
 //      (http://127.0.0.1:8911) OPENJEV_BACKEND_MODEL OPENJEV_MODEL_ID
-//      OPENJEV_TOKEN OPENJEV_MAX_STATE_CHARS (60000) OPENJEV_QUESTION_CHARS
-//      (6000) OPENJEV_BACKEND_TIMEOUT_MS (30000)
+//      OPENJEV_TOKEN OPENJEV_ALLOW_UNAUTHENTICATED OPENJEV_MAX_STATE_CHARS
+//      (60000) OPENJEV_QUESTION_CHARS (6000) OPENJEV_BACKEND_TIMEOUT_MS (30000)
+//
+// The service binds loopback by default. Exposing it on a LAN/tailnet is an
+// explicit choice: set OPENJEV_HOST to a non-loopback address AND either
+// OPENJEV_TOKEN or OPENJEV_ALLOW_UNAUTHENTICATED=1.
 import { createServer, request as httpRequest } from "node:http";
 import { renderState } from "../src/state-text.mjs";
 import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.OPENJEV_PORT || 8890);
-const HOST = process.env.OPENJEV_HOST || "0.0.0.0";
+const HOST = process.env.OPENJEV_HOST || "127.0.0.1";
 const BACKEND = (process.env.OPENJEV_BACKEND_URL || "http://127.0.0.1:8911").replace(/\/+$/, "");
 const BACKEND_TIMEOUT = Number(process.env.OPENJEV_BACKEND_TIMEOUT_MS || 30_000);
 const MAX_STATE_CHARS = Number(process.env.OPENJEV_MAX_STATE_CHARS || 60_000);
 const QUESTION_CHARS = Number(process.env.OPENJEV_QUESTION_CHARS || 6_000);
 const TOKEN = process.env.OPENJEV_TOKEN || "";
+const ALLOW_UNAUTHENTICATED = process.env.OPENJEV_ALLOW_UNAUTHENTICATED === "1";
+const LOOPBACK = /^(?:localhost|127(?:\.\d{1,3}){3}|::1|\[::1\])$/i;
+if (!LOOPBACK.test(HOST) && !TOKEN && !ALLOW_UNAUTHENTICATED) {
+  console.error(
+    `[openjev] refusing to listen on non-loopback host ${HOST} without OPENJEV_TOKEN; ` +
+      "set OPENJEV_TOKEN, or OPENJEV_ALLOW_UNAUTHENTICATED=1 to expose it without auth",
+  );
+  process.exit(1);
+}
 const LETTERS = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 const CHAT_TEMPLATE_KWARGS = JSON.parse(
   process.env.OPENJEV_CHAT_TEMPLATE_KWARGS || '{"enable_thinking": false}',
@@ -36,23 +49,41 @@ function cap(text, budget) {
   return `${text.slice(0, half)}\n[... ${text.length - budget} characters omitted ...]\n${text.slice(-half)}`;
 }
 
+function describe(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.description === "string")
+    return value.description;
+  return "";
+}
+
+// Options keep the caller's description next to each label: the descriptions
+// define the selection policy (e.g. what "high" effort or a 5-step lease means).
 function normaliseQuestion(id, raw) {
   const kind = raw?.type;
   if (!["choice", "score", "noul"].includes(kind))
     throw Object.assign(new Error(`question ${id}: unknown type ${JSON.stringify(kind)}`), { status: 400 });
   const instructions = cap(raw.instructions ?? raw.question ?? "", QUESTION_CHARS);
   const out = { type: kind, instructions };
-  if (kind === "noul") return { ...out, options: ["Yes", "No"] };
-  let options;
+  if (kind === "noul") return { ...out, options: ["Yes", "No"], descriptions: ["", ""] };
+  let entries;
   const criteria = raw.criteria;
-  if (Array.isArray(raw.options)) options = raw.options;
+  const fromList = (list) =>
+    list.map((item) =>
+      item && typeof item === "object" ? [item.label, describe(item)] : [item, ""],
+    );
+  if (Array.isArray(raw.options)) entries = fromList(raw.options);
   else if (criteria && typeof criteria === "object" && !Array.isArray(criteria))
-    options = Object.keys(criteria);
-  else if (Array.isArray(criteria))
-    options = criteria.map((c) => (typeof c === "object" ? c?.label : c));
-  if (!Array.isArray(options) || options.length < 2 || options.length > 26)
-    throw Object.assign(new Error(`question ${id}: needs 2-26 options or criteria`), { status: 400 });
-  out.options = options.map(String);
+    entries = Object.entries(criteria).map(([label, value]) => [label, describe(value)]);
+  else if (Array.isArray(criteria)) entries = fromList(criteria);
+  if (
+    !Array.isArray(entries) ||
+    entries.length < 1 ||
+    entries.length > 26 ||
+    entries.some(([label]) => label === undefined || label === null || String(label) === "")
+  )
+    throw Object.assign(new Error(`question ${id}: needs 1-26 labelled options or criteria`), { status: 400 });
+  out.options = entries.map(([label]) => String(label));
+  out.descriptions = entries.map(([, description]) => cap(description, QUESTION_CHARS));
   return out;
 }
 
@@ -130,28 +161,52 @@ function letterPrompt(stateText, question) {
   const lines = [stateText.trim(), "", `QUESTION (${question.type}): ${question.instructions}`];
   lines.push("OPTIONS:");
   question.options.forEach((option, i) => {
-    lines.push(`${LETTERS[i]}. ${option}`);
+    const description = question.descriptions?.[i];
+    lines.push(description ? `${LETTERS[i]}. ${option} — ${description}` : `${LETTERS[i]}. ${option}`);
   });
   lines.push("Answer with exactly one option letter.");
   return lines.join("\n");
 }
 
-function extractLetter(choice, letters) {
-  const logprobs = choice.logprobs?.content ?? [];
-  for (const entry of logprobs) {
-    const cleaned = entry.token.replace(/["'\s]/g, "");
-    if (cleaned.length === 1 && letters.includes(cleaned)) {
-      const weighted = (entry.top_logprobs ?? [])
-        .map((t) => ({ token: t.token.replace(/["'\s]/g, ""), logprob: t.logprob }))
-        .filter((t) => t.token.length === 1 && letters.includes(t.token));
-      return { letter: cleaned, weighted };
+// The answer is the structured output itself: a JSON string holding exactly one
+// option letter (a bare single letter is tolerated for backends that return
+// the enum value unquoted). Anything else is rejected, never salvaged from prose.
+function parseAnswer(content, letters) {
+  if (typeof content !== "string") return null;
+  const text = content.trim();
+  let value = text;
+  if (text.startsWith('"')) {
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return null;
     }
   }
-  const match = choice.message?.content?.match(/[A-Z]/);
-  return match ? { letter: match[0], weighted: null } : null;
+  return typeof value === "string" && letters.includes(value) ? value : null;
+}
+
+// Probabilities come from the top_logprobs at the position where the answer
+// letter was emitted. Absent or inconsistent logprobs leave them unknown.
+function letterLogprobs(choice, letter, letters) {
+  const entry = (choice.logprobs?.content ?? []).find(
+    (e) => typeof e?.token === "string" && e.token.replace(/["'\s]/g, "") === letter,
+  );
+  if (!entry) return null;
+  const weighted = (entry.top_logprobs ?? [])
+    .map((t) => ({ token: String(t?.token ?? "").replace(/["'\s]/g, ""), logprob: t?.logprob }))
+    .filter((t) => letters.includes(t.token) && Number.isFinite(t.logprob));
+  const seen = new Set();
+  const unique = weighted.filter((t) => !seen.has(t.token) && seen.add(t.token));
+  return unique.some((t) => t.token === letter) ? unique : null;
 }
 
 async function decideOne(stateText, question) {
+  // A single option is already decided (e.g. a lease question under
+  // maxLeaseSteps: 1); asking the model would only add latency.
+  if (question.options.length === 1) {
+    const [only] = question.options;
+    return { index: 0, value: only, probabilities: { [only]: 1 }, confidence: 1, usage: {} };
+  }
   const letters = LETTERS.slice(0, question.options.length);
   const schema = {
     type: "json_schema",
@@ -176,42 +231,48 @@ async function decideOne(stateText, question) {
   };
   const response = await backendRequest("/chat/completions", body);
   const choice = response.choices?.[0];
-  const found = choice ? extractLetter(choice, letters) : null;
-  if (!found)
-    throw Object.assign(new Error("backend did not answer with an option letter"), { status: 502 });
-  const index = letters.indexOf(found.letter);
+  const letter = choice ? parseAnswer(choice.message?.content, letters) : null;
+  if (!letter)
+    throw Object.assign(new Error("backend did not answer with exactly one option letter"), { status: 502 });
+  const index = letters.indexOf(letter);
   const value = question.options[index];
+  const weighted = letterLogprobs(choice, letter, letters);
   let probabilities = null;
   let confidence = null;
-  if (found.weighted?.length) {
-    const total = found.weighted.reduce((sum, t) => sum + Math.exp(t.logprob), 0);
+  if (weighted) {
+    const total = weighted.reduce((sum, t) => sum + Math.exp(t.logprob), 0);
     probabilities = {};
-    for (const t of found.weighted)
+    for (const t of weighted)
       probabilities[question.options[letters.indexOf(t.token)]] = Math.exp(t.logprob) / total;
     confidence = probabilities[value];
   }
   return { index, value, probabilities, confidence, usage: response.usage ?? {} };
 }
 
+// Unknown confidence stays null; it is never promoted to certainty.
 async function answerQuestion(stateText, question) {
   const result = await decideOne(stateText, question);
   const usage = result.usage ?? {};
   const base = { probabilities: result.probabilities ?? undefined };
   if (question.type === "choice")
-    return { type: "choice", choice: result.value, ...base, confidence: result.confidence ?? 1, usage };
-  if (question.type === "noul")
+    return { type: "choice", choice: result.value, ...base, confidence: result.confidence, usage };
+  if (question.type === "noul") {
+    // A noul answer *is* a probability; without logprobs there is none to give.
+    if (result.confidence === null)
+      throw Object.assign(new Error("backend returned no usable logprobs; noul probability is unknown"), { status: 502 });
     return {
       type: "noul",
-      noul: result.index === 0 ? (result.confidence ?? 1) : 1 - (result.confidence ?? 1),
+      noul: result.index === 0 ? result.confidence : 1 - result.confidence,
       usage,
     };
+  }
   const legend = Object.fromEntries(question.options.map((o, i) => [String(i), o]));
   return {
     type: "score",
     score: result.index,
     legend,
     ...base,
-    confidence: result.confidence ?? 1,
+    confidence: result.confidence,
     usage,
   };
 }

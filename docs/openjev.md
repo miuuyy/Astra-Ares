@@ -4,7 +4,8 @@
 Jev gateway. It speaks the TypeSafe-shaped `/v1/systemone` contract served by
 `openjev/service.mjs` (see `openjev/README.md`) — and any other service
 implementing the same shape — so the decision model runs on your own hardware,
-typically on the LAN/tailnet, with round trips around 150 ms instead of a
+on the same machine by default (or a LAN/tailnet host you expose explicitly,
+see `openjev/README.md`), with round trips around 150 ms instead of a
 public-internet round trip per decision.
 
 ## Configuration
@@ -77,3 +78,11 @@ or exhausted decision stops the current turn visibly. `cost` is reported as
   unknown token counts rather than being rejected.
 - `noul`/`score` question types are part of the shared service contract (see
   `openjev/README.md`); Ares only ever sends `choice` questions.
+- The bundled service shows the model each option's label **and** its criteria
+  description, so the effort and lease policy text reaches the decision model.
+- A question with a single option (the lease question under
+  `maxLeaseSteps: 1`) is answered directly, without a model call.
+- The bundled service accepts only the exact structured answer (one option
+  letter); prose or any other output fails the request instead of being
+  interpreted. When the backend returns no usable logprobs, `confidence` is
+  `null` (unknown), never `1`.

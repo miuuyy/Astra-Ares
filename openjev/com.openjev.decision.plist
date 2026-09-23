@@ -11,7 +11,11 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>OPENJEV_PORT</key><string>8890</string>
-    <key>OPENJEV_HOST</key><string>0.0.0.0</string>
+    <!-- Loopback only. To serve other LAN/tailnet machines, set this to
+         0.0.0.0 (or a specific interface address) AND add OPENJEV_TOKEN;
+         the service refuses a non-loopback bind without a token unless
+         OPENJEV_ALLOW_UNAUTHENTICATED is 1. -->
+    <key>OPENJEV_HOST</key><string>127.0.0.1</string>
     <key>OPENJEV_BACKEND_URL</key><string>http://127.0.0.1:8911</string>
   </dict>
   <key>RunAtLoad</key><true/>

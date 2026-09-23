@@ -75,8 +75,8 @@ TypeSafe answer shape:
 llama-server --model ~/ai/models/Qwen3.5-4B-Q5_K_M.gguf \
   --port 8911 --host 127.0.0.1 -c 16384 -np 2 -ngl 99 --jinja &
 
-# 2. decision service — binds 0.0.0.0 so the tailnet can reach it
-node openjev/service.mjs &        # listens on :8890
+# 2. decision service — loopback only by default
+node openjev/service.mjs &        # listens on 127.0.0.1:8890
 
 curl -s localhost:8890/health | python3 -m json.tool
 ```
@@ -91,11 +91,12 @@ logit-readout pattern needs.
 
 | var | default | meaning |
 | --- | --- | --- |
-| `OPENJEV_PORT` / `OPENJEV_HOST` | `8890` / `0.0.0.0` | service bind (0.0.0.0 = tailnet-reachable) |
+| `OPENJEV_PORT` / `OPENJEV_HOST` | `8890` / `127.0.0.1` | service bind; a non-loopback host requires `OPENJEV_TOKEN` (or the opt-out below) |
 | `OPENJEV_BACKEND_URL` | `http://127.0.0.1:8911` | OpenAI-compatible backend base (llama-server) |
 | `OPENJEV_BACKEND_MODEL` | auto from `/v1/models` | backend model id |
 | `OPENJEV_MODEL_ID` | backend model id | id reported in `/v1/models` and responses |
 | `OPENJEV_TOKEN` | unset | require `Authorization: Bearer <token>` on all endpoints except `/health` |
+| `OPENJEV_ALLOW_UNAUTHENTICATED` | unset | `1` allows a non-loopback bind without a token (trusted networks only) |
 | `OPENJEV_CHAT_TEMPLATE_KWARGS` | `{"enable_thinking": false}` | forwarded to the backend; Qwen needs thinking off or it answers in a think block |
 | `OPENJEV_MAX_STATE_CHARS` | `60000` | head+tail cap for string states |
 | `OPENJEV_QUESTION_CHARS` | `6000` | head+tail cap per question's instructions |
@@ -137,7 +138,14 @@ ares configure --provider openjev --base-url http://127.0.0.1:8890   # key: pres
 ares doctor --probe
 ```
 
-From another machine on your tailnet/LAN:
+From another machine on your tailnet/LAN, first expose the service explicitly
+on the decision host:
+
+```bash
+OPENJEV_HOST=0.0.0.0 OPENJEV_TOKEN=<long-random-token> node openjev/service.mjs
+```
+
+Then on the client:
 
 ```jsonc
 // ~/.config/astra-ares/config.json on that machine
@@ -148,14 +156,15 @@ From another machine on your tailnet/LAN:
 }
 ```
 
-(Use a MagicDNS/LAN hostname or IP; add `"apiKeyEnv": "OPENJEV_API_KEY"` if the
-service was started with `OPENJEV_TOKEN`.)
+(Use a MagicDNS/LAN hostname or IP, and provide the token with
+`ares configure --key-stdin` or `OPENJEV_API_KEY`.)
 
 ## Security notes
 
-- The service binds all interfaces so other tailnet devices can use it. That
-  also means any machine that can route to the Mac can ask for decisions.
-  Prefer `OPENJEV_TOKEN` when the tailnet is shared.
+- The service binds loopback by default. Serving other machines is opt-in:
+  set `OPENJEV_HOST` to a non-loopback address, and the service refuses to
+  start unless `OPENJEV_TOKEN` is set (or `OPENJEV_ALLOW_UNAUTHENTICATED=1`
+  acknowledges that anything that can route to the host may request decisions).
 - `/health` is always open and never includes state or answers.
 - States are rendered locally and sent only to the configured backend; nothing
   is logged beyond method/path/status/latency.
