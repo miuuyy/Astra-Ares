@@ -115,6 +115,57 @@ for (const leaseSteps of [1, 2, 5, 10])
       [1, leaseSteps + 1],
     );
   });
+test("older-call preview omissions do not override effort or end a lease", async () => {
+  const evaluated = [];
+  const records = [];
+  const evaluator = new TurnEvaluator({
+    record: (event) => records.push(event),
+    jev: {
+      decide: async (state) => {
+        evaluated.push(state);
+        return { effort: "medium", leaseSteps: 2, jevMs: 1 };
+      },
+    },
+  });
+  for (let step = 1; step <= 16; step++) {
+    const retained = Array.from({ length: step - 1 }, (_, index) => ({
+      callId: `call-${index}`,
+      name: "exec_command",
+      input: "inspect next file",
+      outputs: [{ text: "inspection succeeded", success: true }],
+    }));
+    const next = checkpoint(step, {
+      supportedEfforts: ["low", "medium", "high"],
+      currentEffort: "medium",
+    });
+    next.context.recentToolCalls = retained.slice(-6);
+    next.context.omittedOlderToolCalls = Math.max(retained.length - 6, 0);
+    const decision = await evaluator.handle(next);
+    assert.equal(decision.effort, "medium");
+    assert.equal(decision.leaseSteps, 2);
+    assert.equal(evaluated.length, Math.ceil(step / 2));
+    await evaluator.handle({
+      ...decision,
+      type: "applied",
+      confirmation: "native_step_context_captured",
+    });
+  }
+  assert.deepEqual(
+    evaluated.map((state) => [state.step, state.omittedOlderToolCalls]),
+    [
+      [1, 0],
+      [3, 0],
+      [5, 0],
+      [7, 0],
+      [9, 2],
+      [11, 4],
+      [13, 6],
+      [15, 8],
+    ],
+  );
+  assert.equal(records.filter((event) => event.type === "decision").length, 16);
+  assert(!records.some((event) => event.type === "effort_changed"));
+});
 for (const [label, change] of Object.entries({
   steer: { inputRevision: 2 },
   failure: { failedToolCount: 1 },
