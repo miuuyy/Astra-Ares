@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="#get-started">Get started</a> ·
+  <a href="#codex-desktop-app">Desktop app</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/configuration.md">Configuration</a> ·
   <a href="docs/troubleshooting.md">Troubleshooting</a>
@@ -24,7 +25,7 @@ This is possible because **GPT-6 models can change reasoning effort without inva
 
 ## Get started
 
-**You install a separate, patched Codex CLI.** Setup downloads a pinned Codex version, applies the included patch, and builds it automatically. You do not edit Codex yourself. Your existing `codex` command and Codex desktop app stay as they are.
+**You install a separate, patched Codex CLI.** Setup downloads a pinned Codex version, applies the included patch, and builds it automatically. You do not edit Codex yourself. Your existing `codex` command stays as it is. On macOS, the Codex desktop app can optionally be pointed at the patched app-server with `ares desktop install`.
 
 You need **Node.js 22+**, npm, Git, curl, tar, a native C/C++ build toolchain, and [Rust via rustup](https://rustup.rs/). Allow about **10 GB free** for the first build and several minutes to compile. The build installs upstream's pinned Rust toolchain. On macOS, install the Xcode Command Line Tools if needed: `xcode-select --install`.
 
@@ -77,6 +78,34 @@ Jev  LOW → HIGH  ✓ APPLIED
 
 `APPLIED` means Codex confirmed the settings for the next generation. The notification is emitted after native application, not when Jev merely suggests a value.
 
+## Codex desktop app
+
+On macOS, Astra-Ares can expose the same logical models inside the Codex desktop UI by installing a per-user LaunchAgent. This does **not** modify the signed desktop app bundle. It sets `CODEX_CLI_PATH` for future app launches so the app starts the patched Ares app-server with the Jev bridge and required native feature flags.
+
+```sh
+ares desktop install
+```
+
+The installer also enables `features.step_model_switching` and `features.reasoning_effort_override` in the selected desktop Codex home, because the desktop app's session config must allow native effort updates. Then quit and reopen the Codex app. The model picker can show **Astra Ares** as an adaptive model, and the existing onboarding modal may still use the stored prototype name **Astra-Jev**.
+
+<p align="center">
+  <img src="assets/readme/desktop-astra-ares-picker.png" width="396" alt="Codex desktop model picker showing Astra Ares selected.">
+</p>
+
+<p align="center">
+  <img src="assets/readme/desktop-astra-jev-popup.png" width="520" alt="Codex desktop modal introducing Astra-Jev.">
+</p>
+
+Useful commands:
+
+```sh
+ares desktop status      # inspect LaunchAgent and CODEX_CLI_PATH
+ares desktop open        # install and open a fresh Codex app instance
+ares desktop uninstall   # remove the launch override
+```
+
+If the app was already running before installation, it may keep the old app-server or old session config until fully quit. See [troubleshooting](docs/troubleshooting.md#codex-desktop-app) for the feature-flag error and recovery steps.
+
 ## Everyday use
 
 ```sh
@@ -85,6 +114,7 @@ astra-ares resume --last        # continue your last Ares session
 ares configure                 # replace the Jev key
 ares doctor                    # check installation and configuration locally
 ares doctor --probe            # make one small, billable Jev request
+ares desktop status            # check optional desktop app integration
 ```
 
 Codex still owns the terminal UI, tools, approvals, cancellation, and history. Choose ordinary Astra or another model in `/model` to work without Jev routing. Ares uses a separate Codex profile; resuming refers to that profile's sessions.

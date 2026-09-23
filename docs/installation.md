@@ -18,7 +18,7 @@ ares configure
 astra-ares
 ```
 
-Setup verifies the source archive and patch checksums, builds a separate Codex, and installs its matching checksum-pinned code-mode companion. A subsequent setup reuses a compatible managed binary or rebuilds an older one. Build directories include the patch checksum, so a new patch never reuses incompatible source. The normal Codex CLI and desktop application are not patched in place.
+Setup verifies the source archive and patch checksums, builds a separate Codex, and installs its matching checksum-pinned code-mode companion. A subsequent setup reuses a compatible managed binary or rebuilds an older one. Build directories include the patch checksum, so a new patch never reuses incompatible source. The normal Codex CLI is not patched in place. The macOS desktop app can optionally be configured to start the patched app-server with `ares desktop install`.
 
 On macOS, setup preserves Rust symbol tables so proc-macro libraries can load on macOS 27. This increases build artifact size; it does not enable full debug information. See [build troubleshooting](troubleshooting.md#macos-mis-aligned-linkedit-string-pool) if an older checkout failed while loading `sqlx_macros`.
 
@@ -50,6 +50,34 @@ Ares creates its own Codex home under `~/.local/share/astra-ares/codex-home`. It
 
 Existing custom profiles can be selected with an absolute `codexHome` in the configuration. This is useful when continuing sessions from the earlier Jev prototype. The model picker provides **Astra Ares**, **Sol Ares**, and **Luna Ares** for available base models. The selected entry is preserved when a session resumes.
 
+## Codex desktop app on macOS
+
+`ares desktop install` installs a per-user LaunchAgent that sets `CODEX_CLI_PATH` and `CODEX_HOME` for future Codex desktop app launches. The app then starts the patched Ares app-server instead of the bundled app-server. The installer also enables the required native `step_model_switching` and `reasoning_effort_override` flags in the selected desktop Codex home. Astra-Ares still does not modify `/Applications/ChatGPT.app` or replace any files inside the signed application bundle.
+
+```sh
+ares desktop install
+```
+
+Quit and reopen the Codex app after installation. Already-running windows can keep their existing app-server process. To inspect the active launch override:
+
+```sh
+ares desktop status
+```
+
+To install and open a fresh app instance in one step:
+
+```sh
+ares desktop open
+```
+
+To remove the override:
+
+```sh
+ares desktop uninstall
+```
+
+By default the desktop integration uses the normal Codex home at `~/.codex`, so your desktop app keeps its ordinary settings, plugins, and history. Use `--codex-home /absolute/path` only if you intentionally want a separate Codex profile. Ares' Jev key, managed binary, runs, and logs stay under the Astra-Ares data directory.
+
 ## Update
 
 Quit Ares first. Update the checkout, then run:
@@ -61,7 +89,7 @@ npm link
 astra-ares resume --last
 ```
 
-Config, credentials, and native sessions live outside the checkout. Setup rebuilds an outdated managed binary. An explicitly configured `codexBinary` is never overwritten: rebuild it and adopt the new binary with `ares setup --binary`, or remove that field to use the managed build. Replacing the binary with stock Codex or using its self-update is unsupported. Remote, daemon, and desktop-app transports are outside this CLI integration.
+Config, credentials, and native sessions live outside the checkout. Setup rebuilds an outdated managed binary. An explicitly configured `codexBinary` is never overwritten: rebuild it and adopt the new binary with `ares setup --binary`, or remove that field to use the managed build. Replacing the binary with stock Codex or using its self-update is unsupported. Remote and daemon transports are outside this CLI integration; the desktop app path is only the local macOS `CODEX_CLI_PATH` override described above.
 
 ## Remove
 

@@ -4,7 +4,25 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertLocalCliArgs } from "../src/cli-args.mjs";
+import { codexArgsWithAresFeatures } from "../src/launch.mjs";
 import { CodexRpc } from "./native/rpc.mjs";
+
+test("Ares feature flags are always prepended before app-server startup", () => {
+  assert.deepEqual(
+    codexArgsWithAresFeatures([
+      "-c",
+      "features.code_mode_host=true",
+      "app-server",
+      "--analytics-default-enabled",
+    ]).slice(0, 4),
+    [
+      "-c",
+      "features.step_model_switching=true",
+      "-c",
+      "features.reasoning_effort_override=true",
+    ],
+  );
+});
 
 test("literal prompt and option values are not transport flags or commands", () => {
   for (const args of [

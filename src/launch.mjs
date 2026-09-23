@@ -15,6 +15,17 @@ import { Bridge } from "./bridge.mjs";
 import { Jev } from "./jev.mjs";
 import { loadConfig, readKey } from "./config.mjs";
 import { assertLocalCliArgs } from "./cli-args.mjs";
+export const ARES_FEATURE_ARGS = [
+  "-c",
+  "features.step_model_switching=true",
+  "-c",
+  "features.reasoning_effort_override=true",
+];
+
+export function codexArgsWithAresFeatures(args) {
+  return [...ARES_FEATURE_ARGS, ...args];
+}
+
 export function verifyBinary(binary) {
   if (!existsSync(binary))
     throw new Error("Patched Codex is missing. Run ares setup.");
@@ -47,11 +58,31 @@ export async function launch(args, config = loadConfig()) {
   if (!["darwin", "linux"].includes(process.platform))
     throw new Error("Jev native checkpoint requires macOS or Linux");
   assertLocalCliArgs(args);
+  return launchWithBridge(args, config, {
+    codexHome: config.codexHome ?? config.paths.codexHome,
+    ensureDefaultConfig: true,
+    runPrefix: "",
+    startType: "cli_started",
+  });
+}
+
+export async function launchWithBridge(
+  args,
+  config = loadConfig(),
+  {
+    codexHome,
+    ensureDefaultConfig = false,
+    runPrefix = "",
+    startType = "cli_started",
+  } = {},
+) {
+  if (!["darwin", "linux"].includes(process.platform))
+    throw new Error("Jev native checkpoint requires macOS or Linux");
   const binary = config.codexBinary ?? config.paths.binary;
   verifyBinary(binary);
-  const home = config.codexHome ?? config.paths.codexHome;
+  const home = codexHome ?? config.codexHome ?? config.paths.codexHome;
   mkdirSync(home, { recursive: true, mode: 0o700 });
-  if (!existsSync(join(home, "config.toml")))
+  if (ensureDefaultConfig && !existsSync(join(home, "config.toml")))
     writeFileSync(
       join(home, "config.toml"),
       'model = "Astra-Jev"\nmodel_provider = "openai"\n',
@@ -66,7 +97,7 @@ export async function launch(args, config = loadConfig()) {
   const socketDir = mkdtempSync(join(tmpdir(), "ares-"));
   const runDir = join(
     config.paths.runs,
-    new Date().toISOString().replaceAll(":", "-") + "-" + process.pid,
+    `${runPrefix}${new Date().toISOString().replaceAll(":", "-")}-${process.pid}`,
   );
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const record = (event) =>
@@ -110,22 +141,16 @@ export async function launch(args, config = loadConfig()) {
   try {
     await bridge.start();
     record({
-      type: "cli_started",
+      type: startType,
       version: "0.2.1",
       provider: config.provider,
       maxLeaseSteps: config.maxLeaseSteps,
+      codexHome: home,
     });
-    child = spawn(
-      binary,
-      [
-        "-c",
-        "features.step_model_switching=true",
-        "-c",
-        "features.reasoning_effort_override=true",
-        ...args,
-      ],
-      { stdio: "inherit", env },
-    );
+    child = spawn(binary, codexArgsWithAresFeatures(args), {
+      stdio: "inherit",
+      env,
+    });
     process.on("SIGINT", onInt);
     process.on("SIGTERM", onTerm);
     const code = await new Promise((resolve, reject) => {

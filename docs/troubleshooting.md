@@ -22,6 +22,25 @@ For paid access through a different gateway, `ares configure --provider openrout
 
 After upgrading the local bridge, quit and relaunch `astra-ares resume --last`; a running Node process retains its loaded code. Your native Codex thread/history remains on disk.
 
+## Codex desktop app
+
+If the desktop UI shows Astra Ares but a turn fails with:
+
+```text
+Fatal error: Jev bridge: Jev requires native step_model_switching and reasoning_effort_override
+```
+
+the selected model reached a patched Ares checkpoint, but the running desktop session does not have both native feature flags enabled. This usually means the Codex app was already running before `ares desktop install`, it launched without the installed `CODEX_CLI_PATH` override, or the selected desktop Codex home does not have the required feature flags persisted in `config.toml`.
+
+Fix:
+
+```sh
+ares desktop install
+ares desktop status
+```
+
+Confirm `codexCliPath` points at `codex-desktop-launcher.mjs` and `desktopFeatureFlags` shows both required flags as `true`, then fully quit and reopen the Codex app. `ares desktop open` also installs the LaunchAgent, writes the feature flags, and opens a fresh app instance with the override. Do not launch `<data>/bin/codex app-server` directly for desktop use; the Ares desktop launcher starts the Jev bridge and prepends `features.step_model_switching=true` and `features.reasoning_effort_override=true`, while `ares desktop install` persists those flags for the desktop session config.
+
 ## Native warning items during resume
 
 The pinned native build retains the `Astra-Jev` model name and the prototype's `Launch codex-jev` hint if started without its bridge. For Astra-Ares, start through `astra-ares`; launching the native executable directly does not start the bridge.

@@ -14,11 +14,21 @@ import {
 import { verifyBinary } from "../src/launch.mjs";
 import { Jev } from "../src/jev.mjs";
 import { buildCodex } from "../scripts/build-codex.mjs";
+import {
+  desktopStatus,
+  installDesktop,
+  openDesktop,
+  uninstallDesktop,
+} from "../src/desktop.mjs";
 const help = `Astra-Ares — Adaptive Reasoning Effort Selection
 
 ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter]
 ares configure [--provider vercel|typesafe|openrouter] [--key-stdin]
 ares doctor [--probe]
+ares desktop install [--codex-home /absolute/path]
+ares desktop status
+ares desktop open
+ares desktop uninstall
 ares config-path
 astra-ares [ordinary Codex CLI arguments]
 
@@ -26,6 +36,7 @@ Config: $ARES_CONFIG or ~/.config/astra-ares/config.json
 Data:   $ARES_HOME or ~/.local/share/astra-ares
 setup builds an isolated pinned Codex. --binary adopts an already patched build.
 configure reads a key without echo; --key-stdin accepts a piped secret.
+desktop install makes the macOS Codex app use the patched Ares app-server.
 New installations use OpenRouter. Existing configurations keep their provider.
 Vercel: AI_GATEWAY_API_KEY. Direct TypeSafe: TYPESAFE_API_KEY.
 OpenRouter Decisions: OPENROUTER_API_KEY.
@@ -36,7 +47,7 @@ function parse(args) {
     const arg = args.shift();
     if (["--probe", "--key-stdin"].includes(arg)) options[arg.slice(2)] = true;
     else if (
-      ["--binary", "--provider"].includes(arg) &&
+      ["--binary", "--provider", "--codex-home"].includes(arg) &&
       args[0] &&
       !args[0].startsWith("--")
     )
@@ -49,15 +60,33 @@ try {
   if (Number(process.versions.node.split(".")[0]) < 22)
     throw new Error("Node.js 22+ is required");
   const command = process.argv[2] ?? "help";
-  const options = parse(process.argv.slice(3));
+  const args =
+    command === "desktop" ? process.argv.slice(4) : process.argv.slice(3);
+  const desktopCommand =
+    command === "desktop" ? process.argv[3] || "status" : null;
+  const options = parse(args);
   const allowedOptions = {
     setup: ["binary", "provider"],
     configure: ["provider", "key-stdin"],
     doctor: ["probe"],
+    "desktop:install": ["codex-home"],
+    "desktop:status": [],
+    "desktop:open": [],
+    "desktop:uninstall": [],
   };
   for (const option of Object.keys(options))
-    if (!(allowedOptions[command] ?? []).includes(option))
-      throw new Error(`Option --${option} is not supported by ${command}`);
+    if (
+      !(
+        allowedOptions[
+          command === "desktop" ? `desktop:${desktopCommand}` : command
+        ] ?? []
+      ).includes(option)
+    )
+      throw new Error(
+        `Option --${option} is not supported by ${
+          command === "desktop" ? `desktop ${desktopCommand}` : command
+        }`,
+      );
   const paths = locations();
   if (["help", "--help", "-h"].includes(command)) console.log(help);
   else if (command === "config-path") console.log(paths.config);
@@ -156,6 +185,40 @@ try {
         ),
       );
     }
+  } else if (command === "desktop") {
+    if (desktopCommand === "install") {
+      const installed = installDesktop({ codexHome: options["codex-home"] });
+      console.log(
+        `Codex desktop integration installed.\nLauncher: ${installed.launcher}\nLaunchAgent: ${installed.plist}\nCodex home: ${installed.codexHome}\nCodex config: ${installed.codexConfig}\nQuit and reopen the Codex app to use Astra Ares.`,
+      );
+    } else if (desktopCommand === "status") {
+      const status = desktopStatus();
+      console.log(
+        JSON.stringify(
+          {
+            loaded: status.loaded,
+            codexCliPath: status.codexCliPath || null,
+            codexHome: status.codexHome || null,
+            codexConfig: status.codexConfig.configPath,
+            desktopFeatureFlags: status.codexConfig.flags,
+            expectedLauncher: status.paths.launcher,
+            launchAgent: status.paths.plist,
+          },
+          null,
+          2,
+        ),
+      );
+    } else if (desktopCommand === "open") {
+      const opened = openDesktop();
+      console.log(
+        `Codex app opened with Astra Ares.\nLauncher: ${opened.launcher}\nCodex home: ${opened.codexHome}\nCodex config: ${opened.codexConfig}`,
+      );
+    } else if (desktopCommand === "uninstall") {
+      const removed = uninstallDesktop();
+      console.log(
+        `Codex desktop integration disabled.\nLaunchAgent: ${removed.plist}\nQuit and reopen the Codex app to return to the bundled app-server.`,
+      );
+    } else throw new Error(`Unknown desktop command: ${desktopCommand}`);
   } else throw new Error(`Unknown command: ${command}\n${help}`);
 } catch (error) {
   console.error(error.message);
