@@ -16,8 +16,9 @@ import { Jev } from "../src/jev.mjs";
 import { buildCodex, isCurrentManagedBuild } from "../scripts/build-codex.mjs";
 const help = `Astra-Ares — Adaptive Reasoning Effort Selection
 
-ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter]
-ares configure [--provider vercel|typesafe|openrouter] [--key-stdin]
+ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter|local]
+ares configure [--provider vercel|typesafe|openrouter|local] [--key-stdin]
+  [--base-url http://127.0.0.1:8890] [--decision-model model-id] [--context-token-limit 7000]
 ares doctor [--probe]
 ares config-path
 astra-ares [ordinary Codex CLI arguments]
@@ -29,6 +30,7 @@ configure reads a key without echo; --key-stdin accepts a piped secret.
 New installations use OpenRouter. Existing configurations keep their provider.
 Vercel: AI_GATEWAY_API_KEY. Direct TypeSafe: TYPESAFE_API_KEY.
 OpenRouter Decisions: OPENROUTER_API_KEY.
+Local System One service: ARES_LOCAL_API_KEY (optional); model and token limit required.
 `;
 function parse(args) {
   const options = {};
@@ -36,7 +38,13 @@ function parse(args) {
     const arg = args.shift();
     if (["--probe", "--key-stdin"].includes(arg)) options[arg.slice(2)] = true;
     else if (
-      ["--binary", "--provider"].includes(arg) &&
+      [
+        "--binary",
+        "--provider",
+        "--base-url",
+        "--decision-model",
+        "--context-token-limit",
+      ].includes(arg) &&
       args[0] &&
       !args[0].startsWith("--")
     )
@@ -45,14 +53,56 @@ function parse(args) {
   }
   return options;
 }
+function applyEvaluatorOptions(config, options) {
+  const clearKey = () => {
+    for (const field of ["apiKey", "apiKeyEnv", "apiKeyFile"])
+      delete config[field];
+  };
+  if (options.provider && options.provider !== config.provider) {
+    clearKey();
+    for (const field of ["baseUrl", "decisionModel", "contextTokenLimit"])
+      delete config[field];
+    config.provider = options.provider;
+  }
+  if (
+    options["base-url"] !== undefined &&
+    options["base-url"] !== config.baseUrl
+  )
+    clearKey();
+  if (
+    options["decision-model"] !== undefined &&
+    options["decision-model"] !== config.decisionModel
+  )
+    delete config.contextTokenLimit;
+  for (const [option, field] of [
+    ["base-url", "baseUrl"],
+    ["decision-model", "decisionModel"],
+  ]) {
+    if (options[option] !== undefined) config[field] = options[option];
+  }
+  if (options["context-token-limit"] !== undefined)
+    config.contextTokenLimit = Number(options["context-token-limit"]);
+}
 try {
   if (Number(process.versions.node.split(".")[0]) < 22)
     throw new Error("Node.js 22+ is required");
   const command = process.argv[2] ?? "help";
   const options = parse(process.argv.slice(3));
   const allowedOptions = {
-    setup: ["binary", "provider"],
-    configure: ["provider", "key-stdin"],
+    setup: [
+      "binary",
+      "provider",
+      "base-url",
+      "decision-model",
+      "context-token-limit",
+    ],
+    configure: [
+      "provider",
+      "key-stdin",
+      "base-url",
+      "decision-model",
+      "context-token-limit",
+    ],
     doctor: ["probe"],
   };
   for (const option of Object.keys(options))
@@ -65,7 +115,7 @@ try {
     const config = existsSync(paths.config)
       ? readConfig(paths.config)
       : { provider: options.provider ?? "openrouter", maxLeaseSteps: 10 };
-    if (options.provider) config.provider = options.provider;
+    applyEvaluatorOptions(config, options);
     validateConfig(config);
     let needsBuild = false;
     if (options.binary) {
@@ -99,13 +149,18 @@ try {
     const config = existsSync(paths.config)
       ? readConfig(paths.config)
       : { provider: "openrouter", maxLeaseSteps: 10 };
-    if (options.provider) config.provider = options.provider;
+    applyEvaluatorOptions(config, options);
+    validateConfig(config);
     let key;
     if (options["key-stdin"]) key = readFileSync(0, "utf8").trim();
     else {
       if (!process.stdin.isTTY)
         throw new Error("Use --key-stdin for a piped key");
-      process.stderr.write("Jev API key (hidden): ");
+      process.stderr.write(
+        config.provider === "local"
+          ? "Local evaluator API key (hidden; Enter for no key): "
+          : "Jev API key (hidden): ",
+      );
       const output = new Writable({
         write(_chunk, _encoding, done) {
           done();
@@ -123,23 +178,28 @@ try {
         process.stderr.write("\n");
       }
     }
-    if (!key || /\s/.test(key)) throw new Error("Invalid API key");
+    if ((!key && config.provider !== "local") || /\s/.test(key))
+      throw new Error("Invalid API key");
     delete config.apiKeyFile;
     delete config.apiKeyEnv;
-    config.apiKey = key;
+    if (key) config.apiKey = key;
+    else delete config.apiKey;
     saveConfig(paths.config, config);
-    console.log(`Credential saved privately in ${paths.config}`);
+    console.log(`Configuration saved privately in ${paths.config}`);
   } else if (command === "doctor") {
     const config = loadConfig();
     verifyBinary(config.codexBinary ?? paths.binary);
     const key = readKey(config);
     console.log(
-      `Codex checkpoint: compatible\nProvider: ${config.provider}\nCredential: present\nConfig: ${paths.config}`,
+      `Codex checkpoint: compatible\nProvider: ${config.provider}\nCredential: ${key ? "present" : "not configured (local service)"}\nConfig: ${paths.config}`,
     );
     if (options.probe) {
       const decision = await new Jev({
         apiKey: key,
         provider: config.provider,
+        baseUrl: config.baseUrl,
+        decisionModel: config.decisionModel,
+        contextTokenLimit: config.contextTokenLimit,
         maxLeaseSteps: config.maxLeaseSteps,
       }).decide({
         model: "gpt-6-astra",

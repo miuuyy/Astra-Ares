@@ -21,7 +21,7 @@ The pipe is created as the first instance of its name, so a pre-created (squatte
 - One bridge connection/state machine per active turn; per-connection ownership prevents duplicate simultaneous owners.
 - Fixed 2 MB framed transport limit; reply identity and efforts must match the active step and catalog.
 - 1000 local tokens for all results of each retained tool call; public notes and accepted prompts remain intact.
-- 28,000 local tokens for the complete evaluator request: an explicit local error if exceeded.
+- 28,000 local tokens for the complete built-in Jev request, or an explicitly configured limit for a custom evaluator: an explicit local error if exceeded.
 - Same-provider HTTP retries only; no alternative provider/model or saved-effort fallback after failure.
 - A provider error does not confirm or apply an effort. A cancelled request cannot commit a decision.
 - Source/archive/patch/companion checksums are pinned in `patches/upstream.json`; arbitrary Codex upgrades are not supported.

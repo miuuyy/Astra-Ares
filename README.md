@@ -28,12 +28,7 @@ This is possible because **GPT-6 models can change reasoning effort without inva
 
 You need **Node.js 22+**, npm, Git, curl, tar, a native C/C++ build toolchain, and [Rust via rustup](https://rustup.rs/). Allow about **10 GB free** for the first build and several minutes to compile. The build installs upstream's pinned Rust toolchain. On macOS, install the Xcode Command Line Tools if needed: `xcode-select --install`. On Windows, use rustup's MSVC toolchain with Visual Studio Build Tools (C++ workload and Windows SDK), and make sure `git`, `curl` and `tar` are on `PATH`.
 
-| Platform              | Status                                          |
-| --------------------- | ----------------------------------------------- |
-| macOS · Apple Silicon | Built and tested locally                        |
-| macOS Intel / Linux   | Build paths provided; not yet acceptance-tested |
-| Windows x64           | Built and tested on Windows 11; CI-tested       |
-| Windows ARM64         | Build path provided; untested                   |
+Build paths cover macOS, Linux, and Windows. See [platform validation and remaining limits](docs/validation.md#native-integration-fixtures) for the tested configurations.
 
 ### 1. Install from source
 
@@ -60,6 +55,8 @@ ares configure
 Paste the key into the hidden prompt. **OpenRouter is the default for new installs**. The key is saved in your user configuration, outside the repository: a mode `0600` file on macOS/Linux; on Windows, protected by your user-profile folder permissions.
 
 Your selected model uses your existing **Codex login with access to that model**, separately from the Jev key. If needed, sign in with `astra-ares login`. [Other Jev providers and environment variables →](docs/configuration.md)
+
+You can also select another OpenRouter decision model or connect a separately operated local decision service. Jev remains the default. [Evaluator configuration and protocol →](docs/configuration.md#other-openrouter-decision-models)
 
 ### 3. Start Codex
 
@@ -114,13 +111,13 @@ Jev also selects how long to keep its choice. If it selects ten generations, Are
 
 ### What Jev sees
 
-| Context                                                   | Limit                                                            |
-| --------------------------------------------------------- | ---------------------------------------------------------------- |
-| Original/current task and retained previous user requests | Preserved in the evaluator context                               |
-| Public progress, plans, and published reasoning summaries | Preserved; private/encrypted reasoning is excluded               |
-| Recent tool calls and paired results                      | Last **6** calls                                                 |
-| Combined result text for each call                        | **1,000 local tokens**, with explicit head/tail truncation       |
-| Complete evaluator request                                | **28,000 local-token guard**; oversized requests stop explicitly |
+| Context                                                   | Limit                                                                        |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Original/current task and retained previous user requests | Preserved in the evaluator context                                           |
+| Public progress, plans, and published reasoning summaries | Preserved; private/encrypted reasoning is excluded                           |
+| Recent tool calls and paired results                      | Last **6** calls                                                             |
+| Combined result text for each call                        | **1,000 local tokens**, with explicit head/tail truncation                   |
+| Complete evaluator request                                | **28,000 local tokens for Jev**; custom evaluators require an explicit limit |
 
 These limits apply to **Jev's view**. Your selected model keeps its native conversation. The local tokenizer is a budget estimate, not Jev's exact tokenizer. This bounded task context is sent to your selected Jev provider; [configuration and logs](docs/configuration.md) explain what is stored.
 

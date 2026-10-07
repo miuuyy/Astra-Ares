@@ -92,6 +92,9 @@ export async function launch(args, config = loadConfig()) {
       evaluator ??= new Jev({
         apiKey: readKey(config),
         provider: config.provider,
+        baseUrl: config.baseUrl,
+        decisionModel: config.decisionModel,
+        contextTokenLimit: config.contextTokenLimit,
         maxLeaseSteps: config.maxLeaseSteps,
         record,
       });
@@ -112,6 +115,7 @@ export async function launch(args, config = loadConfig()) {
     "AI_GATEWAY_API_KEY",
     "TYPESAFE_API_KEY",
     "OPENROUTER_API_KEY",
+    "ARES_LOCAL_API_KEY",
     config.apiKeyEnv,
   ].filter(Boolean))
     delete env[name];

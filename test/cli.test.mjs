@@ -129,6 +129,91 @@ test("setup rejects an adopted Astra-only binary without overwriting it", () => 
   }
 });
 
+test("provider changes never carry hosted credentials to a local service", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-provider-switch-"));
+  const file = join(dir, "config.json");
+  const env = { ARES_CONFIG: file, ARES_HOME: join(dir, "data") };
+  const args = [
+    "configure",
+    "--provider",
+    "local",
+    "--base-url",
+    "http://127.0.0.1:8890/",
+    "--decision-model",
+    "fixture-reader",
+    "--context-token-limit",
+    "7000",
+  ];
+  try {
+    for (const credential of [
+      { apiKey: "fixture-hosted-secret" },
+      { apiKeyEnv: "HOSTED_SECRET" },
+      { apiKeyFile: join(dir, "hosted.key") },
+    ]) {
+      const original = JSON.stringify({
+        provider: "openrouter",
+        ...credential,
+      });
+      writeFileSync(file, original);
+      const missingInput = invoke(args, env);
+      assert.equal(missingInput.status, 1);
+      assert.match(missingInput.stderr, /Use --key-stdin/);
+      assert.equal(readFileSync(file, "utf8"), original);
+      const local = invoke([...args, "--key-stdin"], env, "\n");
+      assert.equal(local.status, 0, local.stderr);
+      const stored = JSON.parse(readFileSync(file, "utf8"));
+      assert.equal(stored.baseUrl, "http://127.0.0.1:8890");
+      assert.equal(stored.contextTokenLimit, 7000);
+      for (const field of ["apiKey", "apiKeyEnv", "apiKeyFile"])
+        assert.equal(stored[field], undefined);
+      const back = invoke(
+        ["configure", "--provider", "openrouter", "--key-stdin"],
+        env,
+        "fixture-new-hosted-key\n",
+      );
+      assert.equal(back.status, 0, back.stderr);
+      const hosted = JSON.parse(readFileSync(file, "utf8"));
+      assert.equal(hosted.apiKey, "fixture-new-hosted-key");
+      for (const field of ["baseUrl", "decisionModel", "contextTokenLimit"])
+        assert.equal(hosted[field], undefined);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("changing a custom decision model requires a new explicit context budget", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ares-model-budget-"));
+  const file = join(dir, "config.json");
+  const env = { ARES_CONFIG: file, ARES_HOME: join(dir, "data") };
+  try {
+    const configured = invoke(
+      [
+        "configure",
+        "--decision-model",
+        "cloudflare/clef-flash",
+        "--context-token-limit",
+        "60000",
+        "--key-stdin",
+      ],
+      env,
+      "fixture-key\n",
+    );
+    assert.equal(configured.status, 0, configured.stderr);
+    const original = readFileSync(file, "utf8");
+    const changed = invoke(
+      ["configure", "--decision-model", "jaredpalmer/kev-4b", "--key-stdin"],
+      env,
+      "fixture-key\n",
+    );
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, /explicit contextTokenLimit/);
+    assert.equal(readFileSync(file, "utf8"), original);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 for (const fails of [false, true]) {
   test(`configure changes survive a concurrent ${fails ? "failed" : "successful"} setup build`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "ares-concurrent-setup-"));

@@ -2,6 +2,7 @@ import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
 import { ProviderError, responseError, retryDelay } from "./provider-error.mjs";
+import { evaluatorOptions } from "./config.mjs";
 
 export const EFFORTS = [
   "none",
@@ -77,21 +78,27 @@ export function validateDecision(
   result,
   maxLeaseSteps = 10,
   provider = "vercel",
+  requestedModel,
 ) {
   const effort = result.answers?.effort?.choice;
   const leaseSteps = Number(result.answers?.lease?.choice);
   const modelMatches =
     provider === "vercel"
       ? result.model === "typesafe-ai/jev"
-      : provider === "openrouter"
-        ? /^typesafe\/jev-1\.13(?:-\d{8})?$/.test(result.model ?? "") &&
-          result.provider === "TypeSafe"
-        : provider === "typesafe" &&
-          /^jev-(?:\d+\.\d+(?:\.\d+)?|latest)$/.test(result.model ?? "");
+      : provider === "local"
+        ? Boolean(requestedModel) && result.model === requestedModel
+        : provider === "openrouter"
+          ? !requestedModel || requestedModel === "typesafe/jev-1.13"
+            ? /^typesafe\/jev-1\.13(?:-\d{8})?$/.test(result.model ?? "") &&
+              result.provider === "TypeSafe"
+            : result.model === requestedModel
+          : provider === "typesafe" &&
+            /^jev-(?:\d+\.\d+(?:\.\d+)?|latest)$/.test(result.model ?? "");
   if (
     !modelMatches ||
     result.answers?.effort?.type !== "choice" ||
     result.answers?.lease?.type !== "choice" ||
+    !["1", "2", "5", "10"].includes(result.answers?.lease?.choice) ||
     !EFFORTS.includes(effort) ||
     ![1, 2, 5, 10].includes(leaseSteps) ||
     leaseSteps > maxLeaseSteps
@@ -113,6 +120,9 @@ export function validateDecision(
     leaseSteps,
     provider,
     evaluatedModel: result.model,
+    ...(provider === "openrouter"
+      ? { evaluatedProvider: result.provider ?? null }
+      : {}),
     usage:
       provider === "vercel"
         ? result.usage
@@ -120,7 +130,12 @@ export function validateDecision(
             inputTokens: result.usage?.input_tokens,
             outputTokens: result.usage?.output_tokens,
           },
-    cost: provider === "openrouter" ? result.usage?.cost : gateway?.cost,
+    cost:
+      provider === "local"
+        ? null
+        : provider === "openrouter"
+          ? result.usage?.cost
+          : gateway?.cost,
     generationId: provider === "openrouter" ? result.id : gateway?.generationId,
     probabilities: result.answers.effort.probabilities,
   };
@@ -130,6 +145,9 @@ export class Jev {
   constructor({
     apiKey,
     provider = "vercel",
+    baseUrl,
+    decisionModel,
+    contextTokenLimit,
     maxLeaseSteps = 10,
     fetchImpl = fetch,
     record = () => {},
@@ -137,13 +155,23 @@ export class Jev {
     maxAttempts = 3,
     deadlineMs = 30_000,
   }) {
-    if (!apiKey || /\s/.test(apiKey))
+    const route = evaluatorOptions({
+      provider,
+      baseUrl,
+      decisionModel,
+      contextTokenLimit,
+    });
+    if (
+      (provider !== "local" && !apiKey) ||
+      (apiKey !== undefined &&
+        (typeof apiKey !== "string" || !apiKey || /\s/.test(apiKey)))
+    )
       throw new Error("A Jev API key is required");
-    if (!["vercel", "typesafe", "openrouter"].includes(provider))
-      throw new Error("Unsupported Jev provider");
     Object.assign(this, {
       apiKey,
       provider,
+      ...route,
+      contextTokenLimit: route.contextTokenLimit ?? 28_000,
       maxLeaseSteps,
       fetchImpl,
       record,
@@ -158,8 +186,19 @@ export class Jev {
       request.model = "jev-latest";
       delete request.providerOptions;
     } else if (this.provider === "openrouter") {
-      request.model = "typesafe/jev-1.13";
-      request.provider = { only: ["typesafe"], allow_fallbacks: false };
+      request.model = this.decisionModel ?? "typesafe/jev-1.13";
+      request.provider = {
+        ...(request.model === "typesafe/jev-1.13"
+          ? { only: ["typesafe"] }
+          : {}),
+        allow_fallbacks: false,
+      };
+      delete request.providerOptions;
+    } else if (this.provider === "local") {
+      request.model = this.decisionModel;
+      // Preserve the complete bounded state and criteria; the service consumes
+      // a System One string state, not a chat-completions prompt.
+      request.state = JSON.stringify(state);
       delete request.providerOptions;
     }
     const body = JSON.stringify(request);
@@ -175,12 +214,15 @@ export class Jev {
         .slice(0, 12),
     };
     this.record({ type: "provider_request", ...trace, ...requestStats });
-    if (localTokens > 28_000 || requestStats.requestBytes > 2_100_000) {
+    if (
+      localTokens > this.contextTokenLimit ||
+      requestStats.requestBytes > 2_100_000
+    ) {
       throw new ProviderError({
         provider: this.provider,
         category: "local_context_limit",
         retryable: false,
-        providerMessage: `Context is ${localTokens} local tokens; limit 28000. Tool results are bounded, but task/notes may still be large. No request sent.`,
+        providerMessage: `Context is ${localTokens} local tokens; limit ${this.contextTokenLimit}. Tool results are bounded, but task/notes may still be large. No request sent.`,
       });
     }
     const start = performance.now();
@@ -191,7 +233,9 @@ export class Jev {
         ? "https://ai-gateway.vercel.sh/v1/evaluate"
         : this.provider === "openrouter"
           ? "https://openrouter.ai/api/alpha/decisions"
-          : "https://api.typesafe.ai/v1/systemone";
+          : this.provider === "local"
+            ? `${this.baseUrl}/v1/systemone`
+            : "https://api.typesafe.ai/v1/systemone";
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       signal?.throwIfAborted();
       if (deadline.aborted)
@@ -205,7 +249,7 @@ export class Jev {
         response = await this.fetchImpl(url, {
           method: "POST",
           headers: {
-            authorization: `Bearer ${this.apiKey}`,
+            ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
             "content-type": "application/json",
           },
           body,
@@ -245,7 +289,12 @@ export class Jev {
           parsed ?? {},
           this.maxLeaseSteps,
           this.provider,
+          this.decisionModel,
         );
+        if (!state.supportedEfforts.includes(decision.effort))
+          throw new Error(
+            "Evaluator selected an effort unsupported by the chosen model",
+          );
         return {
           ...decision,
           attempts: attempt,
