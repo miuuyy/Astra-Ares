@@ -13,7 +13,7 @@ import {
 } from "../src/config.mjs";
 import { verifyBinary } from "../src/launch.mjs";
 import { Jev } from "../src/jev.mjs";
-import { buildCodex } from "../scripts/build-codex.mjs";
+import { buildCodex, isCurrentManagedBuild } from "../scripts/build-codex.mjs";
 const help = `Astra-Ares — Adaptive Reasoning Effort Selection
 
 ares setup [--binary /path/to/patched/codex] [--provider vercel|typesafe|openrouter]
@@ -82,6 +82,8 @@ try {
         needsBuild = true;
       }
     }
+    if (!config.codexBinary && !isCurrentManagedBuild(paths.home))
+      needsBuild = true;
     // Persist setup's choices before the long build. A concurrent configure
     // command owns any later changes; never write this snapshot back afterward.
     saveConfig(paths.config, config);

@@ -39,7 +39,7 @@ ares configure
 astra-ares
 ```
 
-Setup verifies the source archive and patch checksums, builds a separate Codex, and installs its matching checksum-pinned code-mode companion. A subsequent setup reuses a compatible managed binary or rebuilds an older one. Build directories include the patch checksum, so a new patch never reuses incompatible source. The normal Codex CLI and desktop application are not patched in place.
+Setup verifies the source archive and patch checksums, builds a separate Codex, and installs its matching checksum-pinned code-mode companion. A subsequent setup reuses a compatible managed binary only when its build receipt matches the current source and patch checksums; older builds are rebuilt. Build directories include the patch checksum, so a new patch never reuses incompatible source. The normal Codex CLI and desktop application are not patched in place.
 
 On macOS, setup preserves Rust symbol tables so proc-macro libraries can load on macOS 27. This increases build artifact size; it does not enable full debug information. See [build troubleshooting](troubleshooting.md#macos-mis-aligned-linkedit-string-pool) if an older checkout failed while loading `sqlx_macros`.
 

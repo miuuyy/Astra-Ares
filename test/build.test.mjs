@@ -1,6 +1,42 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nativeBuildEnv } from "../scripts/build-codex.mjs";
+import {
+  nativeBuildEnv,
+  isCurrentManagedBuild,
+} from "../scripts/build-codex.mjs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("managed setup only reuses a build of the current pinned patch", () => {
+  const home = mkdtempSync(join(tmpdir(), "ares-build-receipt-"));
+  const file = join(home, "build-receipt.json");
+  const meta = JSON.parse(
+    readFileSync(new URL("../patches/upstream.json", import.meta.url), "utf8"),
+  );
+  try {
+    assert.equal(isCurrentManagedBuild(home), false);
+    writeFileSync(
+      file,
+      JSON.stringify({ commit: meta.commit, patchSha256: "old-patch" }),
+    );
+    assert.equal(isCurrentManagedBuild(home), false);
+    writeFileSync(
+      file,
+      JSON.stringify({ commit: "old-source", patchSha256: meta.patchSha256 }),
+    );
+    assert.equal(isCurrentManagedBuild(home), false);
+    writeFileSync(
+      file,
+      JSON.stringify({ commit: meta.commit, patchSha256: meta.patchSha256 }),
+    );
+    assert.equal(isCurrentManagedBuild(home), true);
+    writeFileSync(file, "invalid receipt");
+    assert.throws(() => isCurrentManagedBuild(home));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("macOS builds preserve proc-macro symbols even with inherited stripping enabled", () => {
   const inherited = {

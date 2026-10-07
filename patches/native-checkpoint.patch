@@ -14657,7 +14657,7 @@ index 4753a2a..545865e 100644
          ServerNotification::McpServerStatusUpdated(notification) => {
              match notification.thread_id.as_deref() {
 diff --git a/codex-rs/tui/src/app/exit_summary.rs b/codex-rs/tui/src/app/exit_summary.rs
-index 39b0238..4a80c85 100644
+index 39b0238..7f8d19b 100644
 --- a/codex-rs/tui/src/app/exit_summary.rs
 +++ b/codex-rs/tui/src/app/exit_summary.rs
 @@ -80,6 +80,15 @@ impl App {
@@ -14665,7 +14665,7 @@ index 39b0238..4a80c85 100644
      /// Format the terminal summary for both the CLI and standalone TUI binaries.
      pub fn format_exit_messages(self, color_enabled: bool) -> Vec<String> {
 +        let program = if std::env::var_os("CODEX_STEP_CONTROLLER_SOCKET").is_some() {
-+            "codex-jev"
++            "astra-ares"
 +        } else {
 +            "codex"
 +        };
@@ -14701,7 +14701,7 @@ index 39b0238..4a80c85 100644
 +mod jev_tests;
 diff --git a/codex-rs/tui/src/app/exit_summary_jev_tests.rs b/codex-rs/tui/src/app/exit_summary_jev_tests.rs
 new file mode 100644
-index 0000000..323a6f7
+index 0000000..a86c972
 --- /dev/null
 +++ b/codex-rs/tui/src/app/exit_summary_jev_tests.rs
 @@ -0,0 +1,22 @@
@@ -14721,10 +14721,10 @@ index 0000000..323a6f7
 +        update_action: None,
 +        exit_reason: ExitReason::UserRequested,
 +    };
-+    insta::assert_snapshot!(info.format_exit_messages_with_program(/*color_enabled*/ false, "codex-jev").join("\n"), @r"
++    insta::assert_snapshot!(info.format_exit_messages_with_program(/*color_enabled*/ false, "astra-ares").join("\n"), @r"
 +To continue this session, run:
-+  codex-jev resume 123e4567-e89b-12d3-a456-426614174000
-+Or run codex-jev resume and select My task.
++  astra-ares resume 123e4567-e89b-12d3-a456-426614174000
++Or run astra-ares resume and select My task.
 +");
 +}
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs

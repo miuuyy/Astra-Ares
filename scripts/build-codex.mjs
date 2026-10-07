@@ -15,6 +15,17 @@ import { exe } from "../src/config.mjs";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const hash = (file) =>
   createHash("sha256").update(readFileSync(file)).digest("hex");
+export function isCurrentManagedBuild(home) {
+  const file = join(home, "build-receipt.json");
+  if (!existsSync(file)) return false;
+  const receipt = JSON.parse(readFileSync(file, "utf8"));
+  const meta = JSON.parse(
+    readFileSync(join(root, "patches/upstream.json"), "utf8"),
+  );
+  return (
+    receipt.commit === meta.commit && receipt.patchSha256 === meta.patchSha256
+  );
+}
 export function nativeBuildEnv(env = process.env, platform = process.platform) {
   return {
     ...env,

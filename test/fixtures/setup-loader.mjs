@@ -16,6 +16,7 @@ export async function load(url, context, nextLoad) {
       import { existsSync, mkdirSync, writeFileSync } from "node:fs";
       import { join } from "node:path";
       import { setTimeout } from "node:timers/promises";
+      export function isCurrentManagedBuild() { return true; }
       export async function buildCodex(home) {
         console.log("FIXTURE_BUILD_WAITING");
         const deadline = Date.now() + 10000;
