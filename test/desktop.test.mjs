@@ -331,3 +331,21 @@ test("older native editors cannot modify desktop configuration", async (t) => {
   );
   assert.equal(readFileSync(file, "utf8"), original);
 });
+
+test("launchctl readback preserves whitespace in installed and prior paths", async (t) => {
+  const f = fixture(t);
+  f.runtime.env.CODEX_CLI_PATH = "/previous/codex ";
+  const previous = { ...f.runtime.env };
+  const manager = new DesktopIntegration({
+    ...f.settings,
+    exec(command, args, options) {
+      const result = f.settings.exec(command, args, options);
+      return args[0] === "getenv" ? `${result}\n` : result;
+    },
+  });
+  const profile = join(f.dir, "profile with trailing space ");
+  assert((await manager.install({ codexHome: profile })).environmentMatches);
+  assert.equal(f.runtime.env.CODEX_HOME, profile);
+  await manager.uninstall();
+  assert.deepEqual(f.runtime.env, previous);
+});

@@ -156,7 +156,7 @@ export class DesktopIntegration {
       return this.exec("/bin/launchctl", args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-      }).trim();
+      }).replace(/\r?\n$/, "");
     } catch (error) {
       if (absentStatus !== undefined && error.status === absentStatus)
         return null;
