@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertLocalCliArgs } from "../src/cli-args.mjs";
-import { CodexRpc } from "./native/rpc.mjs";
+import { CodexRpc } from "../src/rpc.mjs";
 
 test("literal prompt and option values are not transport flags or commands", () => {
   for (const args of [

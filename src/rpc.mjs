@@ -3,16 +3,21 @@ import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 
 export class CodexRpc extends EventEmitter {
-  constructor(binary, args, env, stderr) {
+  constructor(binary, args, env, stderr, options = {}) {
     super();
     this.sequence = 0;
     this.pending = new Map();
-    this.child = spawn(binary, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(binary, args, {
+      ...options,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     this.child.stderr.on("data", (chunk) => stderr?.write(chunk));
     createInterface({ input: this.child.stdout }).on("line", (line) => {
       try {
         this.receive(JSON.parse(line));
       } catch (error) {
+        this.failPending(error);
         this.emit("fault", error);
       }
     });
@@ -82,6 +87,7 @@ export class CodexRpc extends EventEmitter {
       return Promise.resolve();
     const exited = new Promise((resolve) => this.child.once("exit", resolve));
     this.child.kill("SIGTERM");
-    return exited;
+    const timeout = setTimeout(() => this.child.kill("SIGKILL"), 5000);
+    return exited.finally(() => clearTimeout(timeout));
   }
 }

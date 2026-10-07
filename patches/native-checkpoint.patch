@@ -15063,3 +15063,55 @@ index ee4041233f060bc91cac54113ea0338a4fbb6e85..c0e8a0f969788f4e3f96e58f72fddb5b
                          if let Some(label) = Self::reasoning_label_for(&model, effort.as_ref()) {
                              message.push(' ');
                              message.push_str(&label);
+diff --git a/codex-rs/core/src/config/edit.rs b/codex-rs/core/src/config/edit.rs
+--- a/codex-rs/core/src/config/edit.rs
++++ b/codex-rs/core/src/config/edit.rs
+@@ -628,6 +628,20 @@
+         let mut current = self.doc.as_table_mut();
+ 
+         for (index, segment) in segments.iter().enumerate() {
++            // A key's leading comment belongs before the promoted table header,
++            // not inside its brackets. Inline-value suffixes belong after it.
++            let inline_decor = current
++                .get(segment.as_str())
++                .and_then(TomlItem::as_inline_table)
++                .map(|inline| inline.decor().suffix().cloned());
++            let promoted_decor = if let Some(suffix) = inline_decor {
++                let mut key = current.key_mut(segment.as_str())?;
++                let prefix = key.leaf_decor().prefix().cloned();
++                key.leaf_decor_mut().clear();
++                Some((prefix, suffix))
++            } else {
++                None
++            };
+             match mode {
+                 TraversalMode::Create => {
+                     if !current.contains_key(segment.as_str()) {
+@@ -650,6 +664,14 @@
+                 TraversalMode::Existing => {
+                     let item = current.get_mut(segment.as_str())?;
+                     current = document_helpers::ensure_table_for_read(item)?;
++                }
++            }
++            if let Some((prefix, suffix)) = promoted_decor {
++                if let Some(prefix) = prefix {
++                    current.decor_mut().set_prefix(prefix);
++                }
++                if let Some(suffix) = suffix {
++                    current.decor_mut().set_suffix(suffix);
+                 }
+             }
+         }
+@@ -769,7 +791,11 @@
+         return Ok(());
+     }
+ 
+-    write_atomically(&write_paths.write_path, &document.doc.to_string()).with_context(|| {
++    let updated = document.doc.to_string();
++    updated
++        .parse::<DocumentMut>()
++        .context("Ares config editor rejected invalid TOML before writing")?;
++    write_atomically(&write_paths.write_path, &updated).with_context(|| {
+         format!(
+             "failed to persist config at {}",
+             write_paths.write_path.display()

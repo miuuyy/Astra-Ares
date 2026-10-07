@@ -9,6 +9,7 @@ for (const [name, model] of [
   ["selection", "gpt-6-astra"],
   ["selection", "gpt-6-sol"],
   ["selection", "gpt-6-luna"],
+  ...(process.platform === "darwin" ? [["desktop"]] : []),
 ]) {
   const out = resolve(`work/test-${name}-${model ?? "astra"}-${Date.now()}`);
   mkdirSync(out, { recursive: true });

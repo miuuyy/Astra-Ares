@@ -46,15 +46,18 @@ export function verifyBinary(binary) {
       `codex-code-mode-host${exe} must be beside the patched Codex`,
     );
 }
-export async function launch(args, config = loadConfig()) {
+export async function launch(args, config = loadConfig(), options = {}) {
   if (!["darwin", "linux", "win32"].includes(process.platform))
     throw new Error("Jev native checkpoint requires macOS, Linux or Windows");
   assertLocalCliArgs(args);
   const binary = config.codexBinary ?? config.paths.binary;
   verifyBinary(binary);
-  const home = config.codexHome ?? config.paths.codexHome;
+  const home = options.codexHome ?? config.codexHome ?? config.paths.codexHome;
   mkdirSync(home, { recursive: true, mode: 0o700 });
-  if (!existsSync(join(home, "config.toml")))
+  if (
+    options.initializeProfile !== false &&
+    !existsSync(join(home, "config.toml"))
+  )
     writeFileSync(
       join(home, "config.toml"),
       'model = "Astra-Jev"\nmodel_provider = "openai"\n',
@@ -64,7 +67,11 @@ export async function launch(args, config = loadConfig()) {
     process.env.CODEX_HOME || join(homedir(), ".codex"),
     "auth.json",
   );
-  if (!existsSync(join(home, "auth.json")) && existsSync(auth))
+  if (
+    options.initializeProfile !== false &&
+    !existsSync(join(home, "auth.json")) &&
+    existsSync(auth)
+  )
     try {
       symlinkSync(auth, join(home, "auth.json"));
     } catch (error) {

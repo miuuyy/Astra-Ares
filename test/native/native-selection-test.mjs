@@ -10,7 +10,7 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { Bridge, controllerPath } from "../../src/bridge.mjs";
-import { CodexRpc } from "./rpc.mjs";
+import { CodexRpc } from "../../src/rpc.mjs";
 const binary = resolve(process.argv[2]),
   evidence = resolve(process.argv[3]);
 const baseModel = process.argv[4] ?? "gpt-6-astra";

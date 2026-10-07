@@ -87,6 +87,8 @@ ares doctor --probe            # make one small, billable Jev request
 
 Codex still owns the terminal UI, tools, approvals, cancellation, and history. Choose ordinary Astra or another model in `/model` to work without Jev routing. Ares uses a separate Codex profile; resuming refers to that profile's sessions.
 
+For the **Codex desktop app on macOS**, run `ares desktop install`, fully quit and reopen the app, then select an Ares model. [Desktop setup, removal, and validation limits →](docs/desktop.md)
+
 ## How it works
 
 ```text

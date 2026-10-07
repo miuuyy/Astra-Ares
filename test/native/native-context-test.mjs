@@ -10,7 +10,7 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { Bridge, controllerPath } from "../../src/bridge.mjs";
-import { CodexRpc } from "./rpc.mjs";
+import { CodexRpc } from "../../src/rpc.mjs";
 import { outputTokens } from "../../src/tool-output-budget.mjs";
 
 // Real patched Codex; explicit local Responses/Jev fixtures, no model inference.

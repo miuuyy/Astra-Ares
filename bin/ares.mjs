@@ -21,6 +21,10 @@ ares configure [--provider vercel|typesafe|openrouter|local] [--key-stdin]
   [--base-url http://127.0.0.1:8890] [--decision-model model-id] [--context-token-limit 7000]
 ares doctor [--probe]
 ares config-path
+ares desktop install [--codex-home /path/to/profile]  # macOS
+ares desktop status
+ares desktop open --app /Applications/ChatGPT.app
+ares desktop uninstall
 astra-ares [ordinary Codex CLI arguments]
 
 Config: $ARES_CONFIG or ~/.config/astra-ares/config.json
@@ -44,6 +48,8 @@ function parse(args) {
         "--base-url",
         "--decision-model",
         "--context-token-limit",
+        "--codex-home",
+        "--app",
       ].includes(arg) &&
       args[0] &&
       !args[0].startsWith("--")
@@ -87,7 +93,8 @@ try {
   if (Number(process.versions.node.split(".")[0]) < 22)
     throw new Error("Node.js 22+ is required");
   const command = process.argv[2] ?? "help";
-  const options = parse(process.argv.slice(3));
+  const desktopAction = command === "desktop" ? process.argv[3] : undefined;
+  const options = parse(process.argv.slice(command === "desktop" ? 4 : 3));
   const allowedOptions = {
     setup: [
       "binary",
@@ -104,6 +111,12 @@ try {
       "context-token-limit",
     ],
     doctor: ["probe"],
+    desktop:
+      desktopAction === "install"
+        ? ["codex-home"]
+        : desktopAction === "open"
+          ? ["app"]
+          : [],
   };
   for (const option of Object.keys(options))
     if (!(allowedOptions[command] ?? []).includes(option))
@@ -111,7 +124,35 @@ try {
   const paths = locations();
   if (["help", "--help", "-h"].includes(command)) console.log(help);
   else if (command === "config-path") console.log(paths.config);
-  else if (command === "setup") {
+  else if (command === "desktop") {
+    const { DesktopIntegration } = await import("../src/desktop.mjs");
+    const desktop = new DesktopIntegration();
+    if (desktopAction === "install") {
+      console.log(
+        JSON.stringify(
+          await desktop.install({ codexHome: options["codex-home"] }),
+          null,
+          2,
+        ),
+      );
+      console.log(
+        "Installed. Fully quit and reopen the desktop app to use Ares. Select an Ares model in its picker.",
+      );
+    } else if (desktopAction === "status")
+      console.log(JSON.stringify(desktop.status(), null, 2));
+    else if (desktopAction === "uninstall") {
+      console.log(JSON.stringify(await desktop.uninstall(), null, 2));
+      console.log(
+        "Removed. Fully quit and reopen the desktop app to apply the restored launch settings.",
+      );
+    } else if (desktopAction === "open") {
+      await desktop.open(options.app);
+      console.log(
+        "Open requested. If the app was already running, fully quit it and run this command again.",
+      );
+    } else
+      throw new Error("Use ares desktop install, status, open or uninstall");
+  } else if (command === "setup") {
     const config = existsSync(paths.config)
       ? readConfig(paths.config)
       : { provider: options.provider ?? "openrouter", maxLeaseSteps: 10 };
