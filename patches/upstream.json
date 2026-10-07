@@ -2,7 +2,7 @@
   "repository": "https://github.com/openai/codex",
   "commit": "4607249e430dac1c961df4dc615beae88e33cec8",
   "release": "rust-v0.155.0-alpha.9.2",
-  "patchSha256": "f968faa4981aa04f5f485cc782bb01f3497d202caf180aefb15a09d103538e5e",
+  "patchSha256": "9f6158365472ad3e74669b876ccb43cc251055d43d36cd5e2ec0c39d6e2d919a",
   "sourceArchiveSha256": "d9478b4d5bb98d4f6eaa6f57dc51b759f0fc70ebd29614f6b1edf7979564ebd2",
   "version": "0.155.0-alpha.9.2",
   "contextProtocol": 3,
@@ -11,6 +11,11 @@
       "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-aarch64-apple-darwin.tar.gz",
       "sha256": "2c180feadf1d2a18f38d3f32a3f8d92ab8fa72907b19e82f79c114d77190ff55",
       "executable": "codex-code-mode-host-aarch64-apple-darwin"
+    },
+    "aarch64-pc-windows-msvc": {
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-aarch64-pc-windows-msvc.exe.tar.gz",
+      "sha256": "52265ec8762e64b255e03097934981eb00be23ec18746a19f77652180bacf4ae",
+      "executable": "codex-code-mode-host-aarch64-pc-windows-msvc.exe"
     },
     "aarch64-unknown-linux-musl": {
       "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-aarch64-unknown-linux-musl.tar.gz",
@@ -21,6 +26,11 @@
       "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-x86_64-apple-darwin.tar.gz",
       "sha256": "75af802cc984bb34c44798fa3acf2c01cf3a5125619f5d792a7a71506608fe5b",
       "executable": "codex-code-mode-host-x86_64-apple-darwin"
+    },
+    "x86_64-pc-windows-msvc": {
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-x86_64-pc-windows-msvc.exe.tar.gz",
+      "sha256": "7ffef3340fa1e0389e6e5a58141aa8931f1e787a7681b07edbd51614b45f4e03",
+      "executable": "codex-code-mode-host-x86_64-pc-windows-msvc.exe"
     },
     "x86_64-unknown-linux-musl": {
       "url": "https://github.com/openai/codex/releases/download/rust-v0.155.0-alpha.9.2/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz",

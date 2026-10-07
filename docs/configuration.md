@@ -1,6 +1,6 @@
 # Configuration
 
-Run `ares configure` to save an OpenRouter key in a new installation. Run it again to replace the key for the current provider. Key entry is hidden and the config is written with mode `0600`.
+Run `ares configure` to save an OpenRouter key in a new installation. Run it again to replace the key for the current provider. Key entry is hidden and the config is written with mode `0600` on macOS/Linux. On Windows that mode sets no ACL; the file's privacy comes from your user-profile folder permissions, so avoid shared `ARES_CONFIG`/`ARES_HOME` locations. In an unlinked Windows checkout, run these commands as `node bin/ares.mjs …` (or `ares.cmd` after `npm.cmd link`).
 
 ```sh
 ares config-path
@@ -53,7 +53,7 @@ Choose only one of `apiKey`, `apiKeyEnv`, and `apiKeyFile`. With none set, the p
 | ---------------------- | -------------------------------------------------- |
 | Configuration          | `~/.config/astra-ares/config.json` / `ARES_CONFIG` |
 | Data, builds, and logs | `~/.local/share/astra-ares` / `ARES_HOME`          |
-| Native executable      | `<data>/bin/codex`                                 |
+| Native executable      | `<data>/bin/codex` (`codex.exe` on Windows)        |
 | Native history         | `<data>/codex-home`, unless `codexHome` is set     |
 | Decisions              | `<data>/runs/<run>/decisions.jsonl`                |
 

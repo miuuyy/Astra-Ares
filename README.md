@@ -26,17 +26,18 @@ This is possible because **GPT-6 models can change reasoning effort without inva
 
 **You install a separate, patched Codex CLI.** Setup downloads a pinned Codex version, applies the included patch, and builds it automatically. You do not edit Codex yourself. Your existing `codex` command and Codex desktop app stay as they are.
 
-You need **Node.js 22+**, npm, Git, curl, tar, a native C/C++ build toolchain, and [Rust via rustup](https://rustup.rs/). Allow about **10 GB free** for the first build and several minutes to compile. The build installs upstream's pinned Rust toolchain. On macOS, install the Xcode Command Line Tools if needed: `xcode-select --install`.
+You need **Node.js 22+**, npm, Git, curl, tar, a native C/C++ build toolchain, and [Rust via rustup](https://rustup.rs/). Allow about **10 GB free** for the first build and several minutes to compile. The build installs upstream's pinned Rust toolchain. On macOS, install the Xcode Command Line Tools if needed: `xcode-select --install`. On Windows, use rustup's MSVC toolchain with Visual Studio Build Tools (C++ workload and Windows SDK), and make sure `git`, `curl` and `tar` are on `PATH`.
 
 | Platform              | Status                                          |
 | --------------------- | ----------------------------------------------- |
 | macOS · Apple Silicon | Built and tested locally                        |
 | macOS Intel / Linux   | Build paths provided; not yet acceptance-tested |
-| Windows               | Not supported by this Unix-socket integration   |
+| Windows x64           | Built and tested on Windows 11; CI-tested       |
+| Windows ARM64         | Build path provided; untested                   |
 
 ### 1. Install from source
 
-Clone the repository:
+On Windows, follow the [PowerShell steps](docs/installation.md#windows-powershell) instead. On macOS or Linux, clone the repository:
 
 ```sh
 git clone https://github.com/miuuyy/Astra-Ares.git
@@ -56,7 +57,7 @@ Create an [OpenRouter API key](https://openrouter.ai/workspaces/default/keys) wi
 ares configure
 ```
 
-Paste the key into the hidden prompt. **OpenRouter is the default for new installs**. The key is saved in your private user configuration, outside the repository.
+Paste the key into the hidden prompt. **OpenRouter is the default for new installs**. The key is saved in your user configuration, outside the repository: a mode `0600` file on macOS/Linux; on Windows, protected by your user-profile folder permissions.
 
 Your selected model uses your existing **Codex login with access to that model**, separately from the Jev key. If needed, sign in with `astra-ares login`. [Other Jev providers and environment variables →](docs/configuration.md)
 
@@ -140,9 +141,11 @@ Run `ares doctor`, then `ares doctor --probe` to check the provider. Logs live i
 ```sh
 npm ci
 npm test
-# Native integration fixtures also need Bun and the patched binary:
+# Native integration fixtures also need Bun and the patched binary (macOS/Linux):
 JEV_TEST_BINARY="$HOME/.local/share/astra-ares/bin/codex" npm run test:native
 ```
+
+For Windows, see the PowerShell example in [validation](docs/validation.md#native-integration-fixtures).
 
 The patch and upstream source checksums are pinned in [patches/upstream.json](patches/upstream.json). The [architecture](docs/architecture.md) explains the native checkpoint, leases, and acknowledgements.
 

@@ -9,7 +9,7 @@ import {
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
-import { Bridge } from "../../src/bridge.mjs";
+import { Bridge, controllerPath } from "../../src/bridge.mjs";
 import { CodexRpc } from "./rpc.mjs";
 const binary = resolve(process.argv[2]),
   evidence = resolve(process.argv[3]);
@@ -104,7 +104,7 @@ const server = Bun.serve({
   },
 });
 const bridge = new Bridge({
-  socketPath: join(socketDir, "step.sock"),
+  socketPath: controllerPath(socketDir),
   record: (r) => records.push(r),
   jev: {
     decide: async (state) => {
@@ -252,7 +252,7 @@ try {
   });
   assert.equal((await run(id, "adaptive-again")).status, "completed");
   assert.equal(states.length, 2);
-  rpc.stop();
+  await rpc.stop();
   await connect();
   const resumed = await rpc.call("thread/resume", { threadId: id });
   assert.equal(resumed.model, alias);
@@ -277,7 +277,7 @@ try {
       live[n].body.input.slice(0, live[n - 1].body.input.length),
       live[n - 1].body.input,
     );
-  rpc.stop();
+  await rpc.stop();
   await connect(false);
   const missing = await rpc.call("thread/start", {
     model: alias,

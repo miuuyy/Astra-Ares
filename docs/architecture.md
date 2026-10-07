@@ -2,13 +2,19 @@
 
 `astra-ares` launches a pinned native Codex with inherited terminal I/O. `Astra Ares`, `Sol Ares`, and `Luna Ares` are logical catalog selections that resolve to `gpt-6-astra`, `gpt-6-sol`, and `gpt-6-luna`, respectively. Their stored selection IDs remain `Astra-Jev`, `Sol-Jev`, and `Luna-Jev`, so existing sessions retain their selection. Each preserves its real model identity on OpenAI requests; Jev selects effort, not the model. Ordinary catalog selections bypass the evaluator. This is a small native fork plus sidecar, not an MCP tool or HTTP proxy.
 
-Before sampling, after tool results and accepted user input enter history, core checks the logical selection. The selected checkpoint sends its public text projection over a private Unix socket. The bridge limits evaluator-only tool previews and asks Jev two typed Choice questions: effort and lease length. It uses the selected effort without semantic overrides.
+Before sampling, after tool results and accepted user input enter history, core checks the logical selection. The selected checkpoint sends its public text projection to the bridge over a local transport (see [bridge transport](#bridge-transport)). The bridge limits evaluator-only tool previews and asks Jev two typed Choice questions: effort and lease length. It uses the selected effort without semantic overrides.
 
 Core applies the result through `Session::apply_turn_settings`, then captures a fresh `StepContext`, checks its actual model/effort, and acknowledges it. Only then is the decision logged as applied and the native TUI notified. Sampling, permissions, tool execution, OpenAI authentication, and cancellation remain native.
 
 A lease counts generations, including the immediately upcoming one; it does not count individual parallel tool calls. Each retained decision is acknowledged at a local checkpoint, but the bridge performs no provider evaluation or context tokenization while its lease remains valid. Accepted input revision, failure count, current model and current effort invalidate stale leases.
 
 For the selected GPT-6 model's reasoning-effort override, native `configuration_update` items carry changes while the original request effort baseline stays pinned. We verified prefix preservation at the request boundary. That does not establish a workload's cache hit rate or dollar savings. See OpenAI's [mid-conversation reasoning documentation](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation). Its supported mode is standard, single-agent GPT-6 requests; automatic compaction/truncation and the standalone compact endpoint have restrictions with these history items. The live acceptance here does not establish long-session compaction support.
+
+## Bridge transport
+
+On macOS and Linux the bridge listens on a Unix socket in a fresh `mkdtemp` directory, with mode `0600`. On Windows it listens on a named pipe `\\.\pipe\ares-<random>` named after that directory. Codex connects through Tokio's named-pipe client and retries briefly while all pipe instances are busy. Both use the same length-prefixed JSON frames.
+
+The pipe is created as the first instance of its name, so a pre-created (squatted) name makes launch fail instead of connecting Codex to another process. Node sets no custom security descriptor. Windows' default pipe ACL gives full control to the owner, Administrators and SYSTEM, but read access to Everyone and anonymous users. A read-only client cannot send a checkpoint or read the instance Codex is connected to, but it can occupy a pipe instance. The pipe is therefore not equivalent to a `0600` socket. An owner-only security descriptor would be the next step if strict local isolation is required.
 
 ## Boundaries
 

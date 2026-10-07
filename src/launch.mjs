@@ -11,9 +11,9 @@ import {
 import { spawn, execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { Bridge } from "./bridge.mjs";
+import { Bridge, controllerPath } from "./bridge.mjs";
 import { Jev } from "./jev.mjs";
-import { loadConfig, readKey } from "./config.mjs";
+import { exe, loadConfig, readKey } from "./config.mjs";
 import { assertLocalCliArgs } from "./cli-args.mjs";
 export function verifyBinary(binary) {
   if (!existsSync(binary))
@@ -34,18 +34,21 @@ export function verifyBinary(binary) {
   if (
     execFileSync(binary, ["--version"], {
       encoding: "utf8",
-      timeout: 5000,
+      // Defender can scan a fresh 300+ MB codex.exe for over a minute on first run.
+      timeout: 120_000,
     }).trim() !== "codex-cli 0.155.0-alpha.9.2"
   )
     throw new Error(
       "Unsupported Codex version; rebuild the pinned source with ares setup.",
     );
-  if (!existsSync(join(dirname(binary), "codex-code-mode-host")))
-    throw new Error("codex-code-mode-host must be beside the patched Codex");
+  if (!existsSync(join(dirname(binary), `codex-code-mode-host${exe}`)))
+    throw new Error(
+      `codex-code-mode-host${exe} must be beside the patched Codex`,
+    );
 }
 export async function launch(args, config = loadConfig()) {
-  if (!["darwin", "linux"].includes(process.platform))
-    throw new Error("Jev native checkpoint requires macOS or Linux");
+  if (!["darwin", "linux", "win32"].includes(process.platform))
+    throw new Error("Jev native checkpoint requires macOS, Linux or Windows");
   assertLocalCliArgs(args);
   const binary = config.codexBinary ?? config.paths.binary;
   verifyBinary(binary);
@@ -62,7 +65,15 @@ export async function launch(args, config = loadConfig()) {
     "auth.json",
   );
   if (!existsSync(join(home, "auth.json")) && existsSync(auth))
-    symlinkSync(auth, join(home, "auth.json"));
+    try {
+      symlinkSync(auth, join(home, "auth.json"));
+    } catch (error) {
+      // Windows needs Developer Mode for symlinks. Never copy a rotating token.
+      if (error.code !== "EPERM") throw error;
+      console.error(
+        "Could not link your Codex login; sign in separately with: node bin/astra-ares.mjs login",
+      );
+    }
   const socketDir = mkdtempSync(join(tmpdir(), "ares-"));
   const runDir = join(
     config.paths.runs,
@@ -88,7 +99,7 @@ export async function launch(args, config = loadConfig()) {
     },
   };
   const bridge = new Bridge({
-    socketPath: join(socketDir, "step.sock"),
+    socketPath: controllerPath(socketDir),
     jev,
     record,
   });
@@ -105,7 +116,8 @@ export async function launch(args, config = loadConfig()) {
   ].filter(Boolean))
     delete env[name];
   let child;
-  const onInt = () => child?.kill("SIGINT"),
+  // Windows already delivers console Ctrl+C to the child; kill() would terminate it.
+  const onInt = () => process.platform !== "win32" && child?.kill("SIGINT"),
     onTerm = () => child?.kill("SIGTERM");
   try {
     await bridge.start();

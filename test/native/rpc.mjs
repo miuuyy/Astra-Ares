@@ -71,7 +71,17 @@ export class CodexRpc extends EventEmitter {
       }
     });
   }
+  // Windows terminates asynchronously; a restart on the same CODEX_HOME must
+  // wait until the old process releases its SQLite state.
   stop() {
+    if (
+      this.child.pid === undefined ||
+      this.child.exitCode !== null ||
+      this.child.signalCode !== null
+    )
+      return Promise.resolve();
+    const exited = new Promise((resolve) => this.child.once("exit", resolve));
     this.child.kill("SIGTERM");
+    return exited;
   }
 }

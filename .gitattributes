@@ -1,2 +1,3 @@
 # A blank context line in a unified diff is a literal space; preserve patch bytes.
-patches/*.patch -whitespace
+# -text also stops Windows checkout CRLF conversion from breaking the patch checksum.
+patches/*.patch -text -whitespace

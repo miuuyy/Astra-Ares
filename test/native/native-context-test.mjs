@@ -9,7 +9,7 @@ import {
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
-import { Bridge } from "../../src/bridge.mjs";
+import { Bridge, controllerPath } from "../../src/bridge.mjs";
 import { CodexRpc } from "./rpc.mjs";
 import { outputTokens } from "../../src/tool-output-budget.mjs";
 
@@ -18,7 +18,7 @@ const binary = resolve(process.argv[2]);
 const evidenceDir = resolve(process.argv[3]);
 mkdirSync(evidenceDir, { recursive: true, mode: 0o700 });
 const socketDir = mkdtempSync(join(tmpdir(), "cj-context-"));
-const socketPath = join(socketDir, "step.sock");
+const socketPath = controllerPath(socketDir);
 const home = join(evidenceDir, "home");
 mkdirSync(home, { recursive: true });
 const models = JSON.parse(

@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Jev, validateDecision } from "../src/jev.mjs";
-import { TurnEvaluator } from "../src/bridge.mjs";
+import { TurnEvaluator, controllerPath } from "../src/bridge.mjs";
 import { budgetToolOutputs, outputTokens } from "../src/tool-output-budget.mjs";
 import { validateConfig, readKey } from "../src/config.mjs";
 import { retryDelay, responseError } from "../src/provider-error.mjs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 const success = {
   model: "typesafe-ai/jev",
   answers: {
@@ -464,6 +466,25 @@ test("config rejects ambiguity, typos and unsupported lease", () => {
   assert.throws(() => validateConfig({ provider: "vercel", maxLeaseSteps: 7 }));
   assert.throws(() => validateConfig({ provider: "vercel", fallback: "high" }));
   assert.equal(validateConfig({ provider: "vercel" }).maxLeaseSteps, 10);
+  assert.throws(
+    () => validateConfig({ provider: "vercel", codexHome: "relative/home" }),
+    /absolute path/,
+  );
+  if (process.platform === "win32")
+    for (const codexHome of ["C:\\ares\\home", "\\\\server\\share\\home"])
+      assert.equal(
+        validateConfig({ provider: "vercel", codexHome }).codexHome,
+        codexHome,
+      );
+});
+test("controller endpoint is a Unix socket file or a Windows named pipe", () => {
+  const dir = join(tmpdir(), "ares-abc123");
+  assert.equal(
+    controllerPath(dir),
+    process.platform === "win32"
+      ? "\\\\.\\pipe\\ares-abc123"
+      : join(dir, "step.sock"),
+  );
 });
 test("cancellation after response arrival cannot return an evaluator decision", async () => {
   const abort = new AbortController();

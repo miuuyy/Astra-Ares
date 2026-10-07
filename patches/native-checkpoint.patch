@@ -13892,14 +13892,14 @@ index 0000000..5246c52
 +    }
 +}
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index 9252c89..3b4cbc9 100644
+index 9252c89..58701e0 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -228,12 +228,16 @@ use codex_protocol::exec_output::StreamOutput;
  mod code_mode_warning;
  pub(crate) mod context_window;
  mod daemon_recovery;
-+#[cfg(unix)]
++#[cfg(any(unix, windows))]
 +mod decision_context;
  mod environment;
  mod extension_interruption;
@@ -13907,7 +13907,7 @@ index 9252c89..3b4cbc9 100644
  mod handlers;
  mod inject;
  mod reasoning_effort;
-+#[cfg(unix)]
++#[cfg(any(unix, windows))]
 +pub(crate) mod step_controller;
  pub(crate) use reasoning_effort::RequestEffortUsage;
  mod input_queue;
@@ -13916,7 +13916,7 @@ index 9252c89..3b4cbc9 100644
          turn_context: &TurnContext,
          item: TurnItem,
      ) {
-+        #[cfg(unix)]
++        #[cfg(any(unix, windows))]
 +        if let TurnItem::CommandExecution(command) = &item
 +            && let Some(exit_code) = command.exit_code
 +        {
@@ -13927,10 +13927,10 @@ index 9252c89..3b4cbc9 100644
              contributor
 diff --git a/codex-rs/core/src/session/step_controller.rs b/codex-rs/core/src/session/step_controller.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8e786aba6
+index 0000000000000000000000000000000000000000..e38568c31b455cdcc03fef886c8a86a165b13b62
 --- /dev/null
 +++ b/codex-rs/core/src/session/step_controller.rs
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,362 @@
 +//! Opt-in evaluator bridge for every native CLI frontend. The bridge selects an
 +//! effort; core applies it through the same live settings path as app-server.
 +
@@ -13953,7 +13953,6 @@ index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8
 +use serde::Serialize;
 +use tokio::io::AsyncReadExt;
 +use tokio::io::AsyncWriteExt;
-+use tokio::net::UnixStream;
 +
 +use super::decision_context::DecisionContext;
 +use super::decision_context::decision_context;
@@ -13961,8 +13960,32 @@ index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8
 +use super::step_context::StepContext;
 +use super::turn_context::TurnContext;
 +
++#[cfg(unix)]
++type Connection = tokio::net::UnixStream;
++#[cfg(windows)]
++type Connection = tokio::net::windows::named_pipe::NamedPipeClient;
++
++#[cfg(unix)]
++async fn connect(path: std::ffi::OsString) -> std::io::Result<Connection> {
++    Connection::connect(path).await
++}
++
++// The bridge listens on a named pipe; retry while all its instances are busy.
++#[cfg(windows)]
++async fn connect(path: std::ffi::OsString) -> std::io::Result<Connection> {
++    const ERROR_PIPE_BUSY: i32 = 231;
++    loop {
++        match tokio::net::windows::named_pipe::ClientOptions::new().open(&path) {
++            Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
++                tokio::time::sleep(Duration::from_millis(50)).await;
++            }
++            result => return result,
++        }
++    }
++}
++
 +pub(super) struct StepController {
-+    connection: Option<UnixStream>,
++    connection: Option<Connection>,
 +    sequence: u64,
 +    failures: Arc<ToolFailureCounter>,
 +    original_prompt: String,
@@ -14136,7 +14159,7 @@ index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8
 +            let socket = std::env::var_os("CODEX_STEP_CONTROLLER_SOCKET")
 +                .ok_or_else(|| failure("Jev requires its bridge. Launch astra-ares."))?;
 +            self.connection = Some(
-+                tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(socket))
++                tokio::time::timeout(Duration::from_secs(5), connect(socket))
 +                    .await
 +                    .map_err(|_| failure("connection timeout"))?
 +                    .map_err(|error| failure(error.to_string()))?,
@@ -14271,14 +14294,14 @@ index 0000000000000000000000000000000000000000..cf91524aadbde7134a00a60331c593d8
 +    }
 +}
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index 1f80548e4e1115f47dc19025c42cc7a012032e60..87d0431562f66d0710dd724025ff4b4e6c33e5dd 100644
+index 1f80548e4e1115f47dc19025c42cc7a012032e60..eeda4a7c6e5d3a31eaa147687446f5c1d7e8765d 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
-@@ -420,6 +420,21 @@ pub(crate) async fn run_turn(
+@@ -420,6 +420,23 @@ pub(crate) async fn run_turn(
      // 2. After auto-compact, when model/tool continuation needs to resume before any steer.
  
      let mut next_step_context = Some(first_step_context);
-+    #[cfg(not(unix))]
++    #[cfg(not(any(unix, windows)))]
 +    if codex_protocol::openai_models::jev_base_model(
 +        turn_context
 +            .current_settings
@@ -14288,19 +14311,21 @@ index 1f80548e4e1115f47dc19025c42cc7a012032e60..87d0431562f66d0710dd724025ff4b4e
 +    )
 +    .is_some()
 +    {
-+        return Err(CodexErr::Fatal("Jev requires a Unix platform".to_owned()));
++        return Err(CodexErr::Fatal(
++            "Jev requires a Unix or Windows platform".to_owned(),
++        ));
 +    }
-+    #[cfg(unix)]
++    #[cfg(any(unix, windows))]
 +    let mut step_controller =
 +        super::step_controller::StepController::new(&turn_context, &turn_user_input(&input));
      let mut guardian_budget_compacted = false;
      loop {
          // Note that pending_input would be something like a message the user
-@@ -457,6 +472,19 @@ pub(crate) async fn run_turn(
+@@ -457,6 +474,19 @@ pub(crate) async fn run_turn(
          .await;
  
          // Capture once so context, advertised tools, and tool calls share one request view.
-+        #[cfg(unix)]
++        #[cfg(any(unix, windows))]
 +        let applied_settings = {
 +            step_controller.accept_user_input(&turn_user_input(&pending_input));
 +            let applied = step_controller
@@ -14316,11 +14341,11 @@ index 1f80548e4e1115f47dc19025c42cc7a012032e60..87d0431562f66d0710dd724025ff4b4e
          let step_context = match next_step_context.take() {
              Some(step_context) if pending_input.is_empty() => step_context,
              None if pending_input.is_empty() => {
-@@ -494,6 +522,13 @@ pub(crate) async fn run_turn(
+@@ -494,6 +524,13 @@ pub(crate) async fn run_turn(
                  .await?
              }
          };
-+        #[cfg(unix)]
++        #[cfg(any(unix, windows))]
 +        if let Some(applied) = applied_settings {
 +            step_controller
 +                .confirm(&sess, &turn_context, &step_context, applied)
@@ -14330,7 +14355,7 @@ index 1f80548e4e1115f47dc19025c42cc7a012032e60..87d0431562f66d0710dd724025ff4b4e
          let sampling_request_result: CodexResult<_> = async {
              super::time_reminder::maybe_record_current_time_reminder(
                  sess.as_ref(),
-@@ -2006,6 +2041,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<(String, Option<
+@@ -2006,6 +2043,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<(String, Option<
          | EventMsg::Warning(_)
          | EventMsg::AuthRecoveryStarted(_)
          | EventMsg::AuthRecoveryCompleted(_)
@@ -14377,14 +14402,14 @@ index e5a21b6e8e57ba5ab30c034203559860fea626d7..f3e572239feea1ef570566a760549f9d
              multi_agent_mode: None,
              realtime_active: Some(self.realtime_active),
 diff --git a/codex-rs/core/src/tools/lifecycle.rs b/codex-rs/core/src/tools/lifecycle.rs
-index 55288f7..3fdb3a6 100644
+index 55288f7..d22e65f 100644
 --- a/codex-rs/core/src/tools/lifecycle.rs
 +++ b/codex-rs/core/src/tools/lifecycle.rs
 @@ -116,6 +116,21 @@ async fn notify_tool_finish_parts(
      source: ToolCallSource,
      outcome: ToolCallOutcome,
  ) {
-+    #[cfg(unix)]
++    #[cfg(any(unix, windows))]
 +    if let Some(counter) = turn
 +        .extension_data
 +        .get::<crate::session::step_controller::ToolFailureCounter>()

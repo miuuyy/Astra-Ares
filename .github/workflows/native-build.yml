@@ -4,8 +4,15 @@ permissions:
   contents: read
 jobs:
   native:
-    runs-on: macos-14
-    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,4 +22,7 @@ jobs:
       - run: node bin/ares.mjs setup
       - run: node bin/astra-ares.mjs --version
       - uses: oven-sh/setup-bun@v2
-      - run: JEV_TEST_BINARY="$HOME/.local/share/astra-ares/bin/codex" npm run test:native
+      - run: |
+          JEV_TEST_BINARY="$(node -e 'import("./src/config.mjs").then((m) => console.log(m.locations().binary))')"
+          export JEV_TEST_BINARY
+          npm run test:native

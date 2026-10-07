@@ -35,7 +35,9 @@ for (const provider of ["vercel", "openrouter"])
       assert(!r.stderr.includes(key));
       assert.equal(JSON.parse(readFileSync(file, "utf8")).apiKey, key);
       assert.equal(JSON.parse(readFileSync(file, "utf8")).provider, provider);
-      assert.equal(statSync(file).mode & 0o777, 0o600);
+      // Windows chmod sets no ACL; the user-profile directory ACL applies there.
+      if (process.platform !== "win32")
+        assert.equal(statSync(file).mode & 0o777, 0o600);
       const doctor = invoke(["doctor"], env);
       assert.equal(doctor.status, 1);
       assert.match(doctor.stderr, /Patched Codex is missing/);

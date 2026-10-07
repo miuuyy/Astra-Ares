@@ -9,7 +9,7 @@ import {
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
-import { Bridge } from "../../src/bridge.mjs";
+import { Bridge, controllerPath } from "../../src/bridge.mjs";
 import { CodexRpc } from "./rpc.mjs";
 
 const binary = resolve(process.argv[2]),
@@ -118,7 +118,7 @@ const server = Bun.serve({
   },
 });
 bridge = new Bridge({
-  socketPath: join(socketDir, "step.sock"),
+  socketPath: controllerPath(socketDir),
   record: (r) => records.push(r),
   jev: {
     decide: async (state, { signal }) => {

@@ -11,6 +11,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { exe } from "../src/config.mjs";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const hash = (file) =>
   createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -33,10 +34,11 @@ export async function run(command, args, options = {}) {
   });
 }
 export async function buildCodex(home) {
-  if (!["darwin", "linux"].includes(process.platform))
+  if (!["darwin", "linux", "win32"].includes(process.platform))
     throw new Error(
-      "This native checkpoint currently requires macOS or Linux.",
+      "This native checkpoint currently requires macOS, Linux or Windows.",
     );
+  const windows = process.platform === "win32";
   const meta = JSON.parse(
     readFileSync(join(root, "patches/upstream.json"), "utf8"),
   );
@@ -66,10 +68,26 @@ export async function buildCodex(home) {
   const stamp = join(source, ".jev-patched");
   if (!existsSync(source)) {
     mkdirSync(source);
-    await run("tar", ["-xzf", archive, "--strip-components=1", "-C", source]);
+    // Relative tar paths: Git Bash's GNU tar reads "C:..." as a remote host.
+    await run(
+      "tar",
+      [
+        "-xzf",
+        "source.tar.gz",
+        "--strip-components=1",
+        "-C",
+        "source",
+        // Its only symlink is a Linux-only license; Windows needs Developer Mode for it.
+        ...(windows
+          ? ["--exclude", "*/codex-rs/vendor/bubblewrap/LICENSE"]
+          : []),
+      ],
+      { cwd: build },
+    );
     await run("git", ["init", "--quiet"], { cwd: source });
-    await run("git", ["apply", "--check", patch], { cwd: source });
-    await run("git", ["apply", patch], { cwd: source });
+    const apply = ["-c", "core.autocrlf=false", "apply"];
+    await run("git", [...apply, "--check", patch], { cwd: source });
+    await run("git", [...apply, patch], { cwd: source });
     if (
       !existsSync(join(source, "codex-rs/core/src/session/step_controller.rs"))
     )
@@ -84,26 +102,32 @@ export async function buildCodex(home) {
     );
   }
   // Cargo reads the upstream-pinned rust-toolchain.toml. Never builds arbitrary stock HEAD.
-  await run(
-    "cargo",
-    [
-      "build",
-      "--locked",
-      "-p",
-      "codex-cli",
-      "--bin",
-      "codex",
-      "--profile",
-      "dev-small",
-      "-j",
-      "2",
-    ],
-    {
-      cwd: join(source, "codex-rs"),
-      env: nativeBuildEnv(),
-    },
-  );
-  const target = `${process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : "unsupported"}-${process.platform === "darwin" ? "apple-darwin" : "unknown-linux-musl"}`;
+  const cargo = (pkg, bins) =>
+    run(
+      "cargo",
+      [
+        "build",
+        "--locked",
+        "-p",
+        pkg,
+        ...bins.flatMap((bin) => ["--bin", bin]),
+        "--profile",
+        "dev-small",
+        "-j",
+        "2",
+      ],
+      {
+        cwd: join(source, "codex-rs"),
+        env: nativeBuildEnv(),
+      },
+    );
+  await cargo("codex-cli", ["codex"]);
+  // Upstream's optional Windows sandbox looks for these beside codex.exe.
+  const sandboxHelpers = windows
+    ? ["codex-command-runner", "codex-windows-sandbox-setup"]
+    : [];
+  if (windows) await cargo("codex-windows-sandbox", sandboxHelpers);
+  const target = `${process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : "unsupported"}-${process.platform === "darwin" ? "apple-darwin" : windows ? "pc-windows-msvc" : "unknown-linux-musl"}`;
   const helper = meta.helpers[target];
   if (!helper)
     throw new Error(`Unsupported native companion target: ${target}`);
@@ -122,13 +146,18 @@ export async function buildCodex(home) {
     throw new Error("Code-mode host checksum mismatch");
   const companionDir = join(build, "companion");
   mkdirSync(companionDir, { recursive: true });
-  await run("tar", ["-xzf", companionArchive, "-C", companionDir]);
+  await run("tar", ["-xzf", "code-mode-host.tar.gz", "-C", "companion"], {
+    cwd: build,
+  });
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
-  const sources = {
-    codex: join(source, "codex-rs/target/dev-small/codex"),
-    "codex-code-mode-host": join(companionDir, helper.executable),
-  };
+  const sources = Object.fromEntries(
+    ["codex", ...sandboxHelpers].map((name) => [
+      name + exe,
+      join(source, "codex-rs/target/dev-small", name + exe),
+    ]),
+  );
+  sources[`codex-code-mode-host${exe}`] = join(companionDir, helper.executable);
   for (const [name, from] of Object.entries(sources)) {
     const temp = join(bin, `${name}.new`);
     cpSync(from, temp);
@@ -150,5 +179,5 @@ export async function buildCodex(home) {
       2,
     ),
   );
-  return join(bin, "codex");
+  return join(bin, `codex${exe}`);
 }

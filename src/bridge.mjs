@@ -1,7 +1,15 @@
 import { createServer } from "node:net";
 import { chmodSync } from "node:fs";
+import { basename, join } from "node:path";
 import { EFFORTS } from "./jev.mjs";
 import { budgetToolOutputs } from "./tool-output-budget.mjs";
+
+// Node serves Windows named pipes through the same net API as Unix sockets.
+export function controllerPath(dir) {
+  return process.platform === "win32"
+    ? `\\\\.\\pipe\\${basename(dir)}`
+    : join(dir, "step.sock");
+}
 
 export function frame(value) {
   const body = Buffer.from(JSON.stringify(value));
@@ -282,7 +290,10 @@ export class Bridge {
       this.server.once("error", reject);
       this.server.listen(this.socketPath, resolve);
     });
-    chmodSync(this.socketPath, 0o600);
+    // ponytail: a Windows pipe has no file mode; its default ACL also lets
+    // Everyone open it read-only, so it is not a private 0600 equivalent.
+    // Add an owner-only security descriptor if strict isolation is required.
+    if (process.platform !== "win32") chmodSync(this.socketPath, 0o600);
   }
   async stop() {
     for (const socket of this.sockets) socket.destroy();

@@ -7,7 +7,9 @@ import {
   chmodSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { resolve, join, dirname } from "node:path";
+import { resolve, join, dirname, isAbsolute } from "node:path";
+
+export const exe = process.platform === "win32" ? ".exe" : "";
 
 export function locations(env = process.env) {
   const home = env.ARES_HOME
@@ -22,7 +24,7 @@ export function locations(env = process.env) {
   return {
     home,
     config,
-    binary: join(home, "bin/codex"),
+    binary: join(home, `bin/codex${exe}`),
     codexHome: join(home, "codex-home"),
     runs: join(home, "runs"),
   };
@@ -59,7 +61,7 @@ export function validateConfig(value) {
   )
     throw new Error("Choose one of apiKey, apiKeyEnv or apiKeyFile");
   for (const key of ["codexHome", "codexBinary", "apiKeyFile"])
-    if (value[key] && !value[key].startsWith("/"))
+    if (value[key] && !isAbsolute(value[key]))
       throw new Error(`${key} must be an absolute path`);
   return { ...value, maxLeaseSteps: value.maxLeaseSteps ?? 10 };
 }
