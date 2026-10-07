@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
   statSync,
@@ -9,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 const cli = resolve("bin/ares.mjs");
 function invoke(args, env, input) {
   return spawnSync(process.execPath, [cli, ...args], {
@@ -127,3 +128,70 @@ test("setup rejects an adopted Astra-only binary without overwriting it", () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const fails of [false, true]) {
+  test(`configure changes survive a concurrent ${fails ? "failed" : "successful"} setup build`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ares-concurrent-setup-"));
+    const file = join(dir, "config.json");
+    const home = join(dir, "data");
+    mkdirSync(home);
+    const env = { ARES_CONFIG: file, ARES_HOME: home };
+    const loader = new URL("./fixtures/setup-loader.mjs", import.meta.url);
+    const preload = `import { register } from "node:module"; register(${JSON.stringify(loader.href)});`;
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        `data:text/javascript,${encodeURIComponent(preload)}`,
+        cli,
+        "setup",
+      ],
+      {
+        env: {
+          ...process.env,
+          ...env,
+          ARES_TEST_BUILD_FAIL: fails ? "1" : "0",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    let errors = "";
+    child.stderr.on("data", (chunk) => (errors += chunk));
+    const exited = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", resolve);
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        child.stdout.on("data", (chunk) => {
+          output += chunk;
+          if (output.includes("FIXTURE_BUILD_WAITING")) resolve();
+        });
+        exited.then(
+          () => reject(new Error(`Setup exited before build: ${errors}`)),
+          reject,
+        );
+      });
+      const key = "fixture-concurrently-saved-key";
+      const configured = invoke(
+        ["configure", "--provider", "typesafe", "--key-stdin"],
+        env,
+        key + "\n",
+      );
+      assert.equal(configured.status, 0, configured.stderr);
+      const saved = readFileSync(file, "utf8");
+      writeFileSync(join(home, "continue-build"), "");
+      assert.equal(await exited, fails ? 1 : 0, errors);
+      assert.equal(readFileSync(file, "utf8"), saved);
+      assert.equal(JSON.parse(saved).apiKey, key);
+      assert.equal(JSON.parse(saved).provider, "typesafe");
+      assert(!output.includes(key));
+      assert(!errors.includes(key));
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}

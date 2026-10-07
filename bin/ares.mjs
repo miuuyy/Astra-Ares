@@ -67,6 +67,7 @@ try {
       : { provider: options.provider ?? "openrouter", maxLeaseSteps: 10 };
     if (options.provider) config.provider = options.provider;
     validateConfig(config);
+    let needsBuild = false;
     if (options.binary) {
       config.codexBinary = resolve(options.binary);
       verifyBinary(config.codexBinary);
@@ -78,12 +79,17 @@ try {
           throw new Error(
             `Configured codexBinary is incompatible: ${error.message} Rebuild it and use setup --binary, or remove codexBinary from ${paths.config} to build the managed binary.`,
           );
-        console.log("Building the current native checkpoint...");
-        await buildCodex(paths.home);
+        needsBuild = true;
       }
     }
-    verifyBinary(config.codexBinary ?? paths.binary);
+    // Persist setup's choices before the long build. A concurrent configure
+    // command owns any later changes; never write this snapshot back afterward.
     saveConfig(paths.config, config);
+    if (needsBuild) {
+      console.log("Building the current native checkpoint...");
+      await buildCodex(paths.home);
+    }
+    verifyBinary(config.codexBinary ?? paths.binary);
     console.log(
       `Ready. Config: ${paths.config}\nSet your provider key with ares configure, or its environment variable.\nStart: astra-ares`,
     );
