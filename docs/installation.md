@@ -84,11 +84,13 @@ npm link
 astra-ares resume --last
 ```
 
-Config, credentials, and native sessions live outside the checkout. Setup rebuilds an outdated managed binary. An explicitly configured `codexBinary` is never overwritten: rebuild it and adopt the new binary with `ares setup --binary`, or remove that field to use the managed build. Replacing the binary with stock Codex or using its self-update is unsupported. Remote, daemon, and desktop-app transports are outside this CLI integration.
+Config, credentials, and native sessions live outside the checkout. Setup rebuilds an outdated managed binary. An explicitly configured `codexBinary` is never overwritten: rebuild it and adopt the new binary with `ares setup --binary`, or remove that field to use the managed build. Replacing the binary with stock Codex or using its self-update is unsupported. Remote and daemon transports are outside this integration. The separate [macOS desktop setup](desktop.md) uses the same native checkpoint and bridge.
 
 ## Remove
 
 For an installation linked with npm:
+
+If desktop integration is installed, run `ares desktop uninstall` first, then fully quit and reopen the desktop app. This restores its launch settings before you remove the command or checkout.
 
 ```sh
 npm unlink -g astra-ares

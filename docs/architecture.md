@@ -38,4 +38,6 @@ There is no separate flag that identifies decision-critical missing evidence. Le
 
 ## Why a native patch
 
-A shell wrapper or MCP server alone cannot reliably interpose between every native sampling step and its captured settings. An Astra HTTP proxy would add a separate transport/cache boundary. The patch exposes the sampling checkpoint and uses the existing settings owner; the public frontend stays the normal Codex CLI.
+A shell wrapper or MCP server alone cannot reliably interpose between every native sampling step and its captured settings. An Astra HTTP proxy would add a separate transport/cache boundary. The patch exposes the sampling checkpoint and uses the existing settings owner; the frontend stays the normal Codex CLI or the desktop app through its app-server.
+
+The [macOS desktop integration](desktop.md) pins the installation's paths in a private receipt and launches that same bridge with inherited app-server stdio. Its setup-only config RPCs enable two native features; they are not on the generation path. The native TOML editor preserves comments when promoting inline tables and checks the serialized document before replacing the configuration file.
