@@ -62,6 +62,18 @@ The service must implement `POST /v1/systemone`. This is a decision API, not `/c
 
 Only offered choices are valid. Responses must name the configured model exactly. Invalid responses stop the turn; no free-form answer is converted into a decision. No model server, weight download, background service, or extra renderer is installed. Local inference quality and hardware latency are not established by the HTTP fixture tests. Unknown local cost is logged as `null`, not as measured zero cost.
 
+### OpenCode Zen
+
+[OpenCode Zen](https://opencode.ai/docs/zen/) serves Jev through the same decision API at `https://opencode.ai/zen/v1/systemone`, so the `local` route can use it. The input budget matches the built-in Jev routes:
+
+```sh
+ares configure --provider local --base-url https://opencode.ai/zen --decision-model jev-1.13-free --context-token-limit 28000
+```
+
+OpenCode documents key-based access: enter your Zen API key at the prompt, and Ares sends it as a bearer token. The default key environment variable for this route is `ARES_LOCAL_API_KEY`, not `OPENCODE_API_KEY`. OpenCode lists `jev-1.13-free` as available for a limited time and does not say how its request data is used. As with any `local` evaluator, fresh evaluation cost is logged as `null`.
+
+On October 10, 2026, `jev-1.13-free` also answered without a key. That configuration passed `ares doctor --probe` on Linux x64 with `maxLeaseSteps` set to `1`, `2` and `10`, and completed Astra Ares `exec` and TUI sessions. Keyed access and the paid `jev-1.13` were not tested.
+
 ## Config file
 
 Default: `~/.config/astra-ares/config.json`. `$XDG_CONFIG_HOME` is respected. An environment-based configuration looks like:
